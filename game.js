@@ -631,28 +631,41 @@
     }
   }
 
+  // How hard the CPU fights: how often it thinks, and how ready it is to attack, jump
+  // in, strike from the air, and brace against a blow it sees coming.
+  const LEVELS = {
+    easy:   { think: [0.7, 0.6], attack: 0.25, jump: 0.1, air: 0.04, block: 0.006, chase: 0.35 },
+    normal: { think: [0.4, 0.4], attack: 0.45, jump: 0.2, air: 0.1,  block: 0.02,  chase: 0.5 },
+    hard:   { think: [0.22, 0.25], attack: 0.7, jump: 0.3, air: 0.18, block: 0.06, chase: 0.7 },
+  };
+  const LEVEL_KEY = 'protein-fighter-cpu';
+  let level = (() => { try { const v = localStorage.getItem(LEVEL_KEY); if (LEVELS[v]) return v; } catch {} return 'normal'; })();
+  function showLevel() {
+    for (const b of document.querySelectorAll('[data-level]')) b.classList.toggle('on', b.dataset.level === level);
+  }
   // The CPU thinks a couple of times a second, commits to an attack only some of the
   // time, sometimes jumps in, and sits out the round-start callout.
   function cpu(c, p, dt) {
+    const L = LEVELS[level];
     // Spacing is read off the barrels as drawn (the gap between them, last tick), put
     // back on the old centre-to-centre scale the thresholds below were tuned on.
     const gap = (c.barrelGap ?? Math.abs(p.x - c.x) - BARREL_SPAN) + BARREL_SPAN;
     const toward = Math.sign(barrelX(p) - barrelX(c)) || 1;
     ai -= dt;
     if (ai <= 0) {
-      ai = 0.4 + Math.random() * 0.4;
+      ai = L.think[0] + Math.random() * L.think[1];
       const free = c.stun <= 0 && !MOVES[c.action] && c.y === 0 && !c.squat;
-      if (free && gap > 90 && gap < 160 && Math.random() < 0.2) { c.squat = SQUAT; c.jumpDir = toward; c.upReleased = false; }
-      else if (free && gap < 75 && Math.random() < 0.45) {
+      if (free && gap > 90 && gap < 160 && Math.random() < L.jump) { c.squat = SQUAT; c.jumpDir = toward; c.upReleased = false; }
+      else if (free && gap < 75 && Math.random() < L.attack) {
         const r = Math.random();
         attack(c, r < 0.4 ? 'punch' : r < 0.7 ? 'kick' : r < 0.85 ? 'lowkick' : 'lowpunch');
       }
     }
-    if (c.y > 30 && gap < 70 && Math.random() < 0.1) attack(c, Math.random() < 0.6 ? 'airkick' : 'airpunch');
+    if (c.y > 30 && gap < 70 && Math.random() < L.air) attack(c, Math.random() < 0.6 ? 'airkick' : 'airpunch');
     // Sees a strike coming: some of the time it braces, crouching for a low one, standing
     // for one from the air, and holds the guard a little past the blow.
     const pm = MOVES[p.action];
-    if (pm && p.t < pm.active && gap < 85 && c.blockHold <= 0 && c.y === 0 && c.stun <= 0 && !MOVES[c.action] && Math.random() < 0.02) {
+    if (pm && p.t < pm.active && gap < 85 && c.blockHold <= 0 && c.y === 0 && c.stun <= 0 && !MOVES[c.action] && Math.random() < L.block) {
       c.blockHold = 0.45; c.crouch = !!pm.low;
     }
     if (c.blockHold > 0) { if (c.crouch && !(pm && pm.low)) c.crouch = false; }
@@ -669,7 +682,7 @@
     // Half a walk to close in, but a full one to catch up, and to run down a player who
     // keeps backing off (backing off is the slower walk, so it is caught).
     const fleeing = p.action === 'walk' && held[0].has(toward > 0 ? 'right' : 'left');
-    walk(c, B.approach ? toward : 0, dt, fleeing || gap > 130 ? 1 : 0.5);
+    walk(c, B.approach ? toward : 0, dt, fleeing || gap > 130 ? 1 : L.chase);
   }
 
   // Bodies push each other only where they actually touch: the two torsos (the β-barrel,
@@ -826,6 +839,12 @@
     const high = at[1] > b.motion.hip[1] + b.form.motion.NECK_HEIGHT - 8;
     const away = a.facing * b.facing < 0 ? -1 : 1;
     b.form.motion.jolt(b, { head: away * (high ? 24 : 8) * power, arms: away * 5 * power, legs: (m.low ? 6 : 2.5) * power });
+    // A hit on a fighter still reeling from the last, or still in the air from it, runs
+    // the combo on; the count shows over the one taking it, with each hit's damage.
+    a.combo = (b.stun > 0 || b.comboAir) ? (a.combo || 0) + 1 : 1;
+    b.comboAir = b.y > 0;
+    const dmg = Math.round(m.damage * DAMAGE_SCALE * power * 10) / 10;
+    damageNumber(at, dmg, a.combo);
     b.stun = m.stun * (0.4 + 0.6 * power); b.action = 'hurt'; b.t = 0; b.squat = 0; b.lastLow = !!m.low;
     if (b.y > 0) b.vy = Math.max(b.vy, 260);   // hit in the air: popped up, then falls
     hitstop = 0.05 + m.damage * 0.004 * power;
@@ -900,6 +919,20 @@
     el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
   }
   const announce = text => flash([0, 0, 0], text);
+  // A small number floating up from the impact, and past two hits the combo's count.
+  function damageNumber(at, dmg, combo) {
+    const box = $('nums'), { project } = view(), [X, Y] = project(at[0], at[1], at[2]);
+    const el = document.createElement('span');
+    el.className = 'num'; el.textContent = `-${dmg}`;
+    el.style.left = X + 'px'; el.style.top = Y + 'px';
+    box.appendChild(el); setTimeout(() => el.remove(), 900);
+    if (combo >= 2) {
+      const c = document.createElement('span');
+      c.className = 'num combo'; c.textContent = `${combo} HITS`;
+      c.style.left = X + 'px'; c.style.top = (Y - 28) + 'px';
+      box.appendChild(c); setTimeout(() => c.remove(), 1100);
+    }
+  }
   // The finisher, Mortal Kombat style: the word slams in a letter at a time over the
   // collapsing loser, the arena shakes, and the announcer growls it.
   function finisher(text, silent = false) {
@@ -1263,9 +1296,14 @@
       if (phase === 'ready') resetRound();
     };
   }
+  for (const b of document.querySelectorAll('[data-level]')) {
+    b.onclick = () => { level = b.dataset.level; showLevel(); try { localStorage.setItem(LEVEL_KEY, level); } catch {} };
+  }
+  showLevel();
   for (const b of document.querySelectorAll('[data-players]')) {
     b.onclick = () => {
       mode = +b.dataset.players;
+      document.querySelector('.levels').hidden = mode !== 1;
       for (const o of document.querySelectorAll('[data-players]')) o.classList.toggle('on', o === b);
     };
   }
