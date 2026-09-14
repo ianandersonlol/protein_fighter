@@ -161,6 +161,7 @@
         const up = clamp(f.vy / JUMP_V, -1, 1), k = clamp01(1 - Math.abs(up) * (up < 0 ? 1.1 : 0.6));
         const lean = clamp(f.vx * f.facing / (JUMP_VX * 1.6), -1, 1);
         T.pitch = -0.35 * lean * (0.3 - 0.7 * up);
+        T.larmU -= 0.35 * up; T.rarmU -= 0.25 * up;   // the arms come up with the jump and settle as it falls
         const l = [0.43 + k * 0.52, -0.16 - k * 0.69], r = [-0.40 + k * 0.85, -0.12 - k * 1.08];
         T.legs = { l: [l[0], l[1], l[1]], r: [r[0], r[1], r[1]] };
       };
@@ -204,6 +205,7 @@
       } else if (pose === 'hurt') {
         const r = Math.sin(clamp01(1 - f.stun / 0.3) * Math.PI);
         T.pitch = -r * 0.8; T.rarmU = -1 - r * 0.7; T.fwd = -r * 12;
+        if (f.lastLow) { T.bend = 17 * 0.8 * r; T.pitch = -r * 0.4; T.head = r * 0.3; }   // a low blow: the knees buckle and the body folds forward instead
         T.head = -r * 0.5;   // the head snaps back with the blow (the neck's own whiplash is jolt())
       } else if (pose === 'jump') {
         airLegs();
@@ -228,6 +230,8 @@
       const standing = pose === 'idle' || pose === 'rest' || pose === 'walk';
       if (standing && f.squat > 0) T.bend = 17 * 0.55 * (1 - f.squat / SQUAT);
       else if (standing && f.landing > 0) T.bend = 17 * 0.75 * f.landPower * (f.landing / LANDING);
+      // On guard, a light bounce on the knees, as a boxer stays on the balls of the feet.
+      else if (pose === 'idle' && !f.crouch && f.y === 0) T.bend = 2.5 * (0.5 + 0.5 * Math.sin(env.clock * 2 * Math.PI * 1.4 + f.seed));
       // How fast the pose follows: strikes land on time, a knockout goes slack slowly.
       const bracing = f.squat > 0 || f.landing > 0;
       T.omega = MOVES[pose] ? 60 : bracing ? 55 : pose === 'hurt' ? 40 : pose === 'ko' ? 10
@@ -394,7 +398,9 @@
       const k = M.k, flap = air ? S.leg[0] : 0;
 
       // 6. The rig, turned to face ±x (a rotation, not a mirror, so chirality survives) and
-      // set on the hips.
+      // set on the hips. Turning round is a swing through the front, not a flip: the yaw
+      // springs from one facing to the other in about a sixth of a second.
+      const yaw = spring(M, 'yaw', fc * Math.PI / 2, 30, dt), cy = Math.cos(yaw), sy = Math.sin(yaw);
       const p = rig.pose({
         root_R: X(pitch),
         larm_upper: arm(-1, lu + S.l[0] * k), larm_lower: arm(-1, ll + S.l[0] * 1.6 * k),
@@ -405,7 +411,7 @@
       });
       for (const q of p) {
         const x = q[0], y = q[1], z = q[2];
-        q[0] = fc * (z - PELVIS_Z) + hx; q[1] = y - PELVIS_Y + hy; q[2] = -fc * x;
+        q[0] = x * cy + (z - PELVIS_Z) * sy + hx; q[1] = y - PELVIS_Y + hy; q[2] = -x * sy + (z - PELVIS_Z) * cy;
       }
       M.hip = [hx, hy]; M.pose = T.pose;
       return p;
