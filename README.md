@@ -34,7 +34,8 @@ Pick 1 player (against the CPU) or 2 players on one keyboard.
 Playing the CPU, both sets drive P1, and J / K punch and kick as well.
 
 - Walk left and right, double-tap to run; hold away from your opponent to block
-- Jump high enough to clear the other fighter, with a direction to jump forward or back
+- Jump: tap for a short hop, hold for a full jump that clears the other fighter; add a
+  direction to jump forward or back
 - Crouch; crouch and hold back to block low attacks
 - Punch and kick change with what you are doing. Crouching they become low attacks,
   which unfold only the legs and must be blocked crouching. In the air they hit from

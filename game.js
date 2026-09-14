@@ -9,7 +9,11 @@
   // ---------------------------------------------------------------- combat rules
   const ARENA = 150;          // fighters stay within ±ARENA
   const MIN_GAP = 42;         // grounded bodies never overlap closer than this
-  const WALK = 130, RUN = 2.2, JUMP_V = 700, JUMP_VX = 240, GRAVITY = 1800, FRICTION = 9;
+  const WALK = 130, RUN = 2.2, JUMP_V = 580, JUMP_VX = 240, GRAVITY = 1800, FRICTION = 9;
+  // Jumps: a knee bend to push off, falling faster than rising, a little air drag,
+  // letting go of up early cuts it to a short hop, and the knees soak up the landing.
+  // The torso rides the arc and the legs tuck up under it, so ~93 Å clears a fighter.
+  const SQUAT = 0.07, FALL_BOOST = 1.35, AIR_DRAG = 0.4, SHORT_HOP = 0.65, LANDING = 0.2;
   // Street Fighter style: punch or kick, standing, crouching (low) or in the air.
   // push: knockback speed in Å/s, slid out by ground friction.
   // low: only a crouching block stops it, and it unfolds only the legs.
@@ -28,6 +32,7 @@
   function newFighter(x, facing) {
     return {
       x, y: 0, vx: 0, vy: 0, facing, hp: 100, crouch: false, run: false, stride: 0, queued: null, sinceHit: 99,
+      squat: 0, jumpDir: 0, upReleased: false, landing: 0, landPower: 0,
       action: 'idle', t: 0, hit: false, guard: false, stun: 0, cooldown: 0,
       unfold: new Float32Array(N),   // 0 folded … 1 denatured, per residue
       limp: 0.35,                    // how much of that damage the body gives in to
@@ -82,8 +87,22 @@
     tr.rleg_upper = X(CROUCH.r[0]); tr.rleg_lower = X(CROUCH.r[1]); tr.rleg_foot = eye();
     tr.root_R = X(CROUCH.lean);
   }
-  function tuckLegs(tr) {
-    tr.lleg_upper = X(0.95); tr.lleg_lower = X(-0.85); tr.rleg_upper = X(0.45); tr.rleg_lower = X(-1.2);
+  // In the air the legs follow the arc: a partial tuck at take-off, tightest at the
+  // top, reaching back down for the floor as it falls. The body leans back while
+  // rising and forward, into a forward jump, on the way down.
+  function airLegs(tr, f) {
+    const up = Math.max(-1, Math.min(1, f.vy / JUMP_V));
+    const k = clamp01(1 - Math.abs(up) * (up < 0 ? 1.1 : 0.6));
+    tr.lleg_upper = X(0.43 + k * 0.52); tr.lleg_lower = X(-0.16 - k * 0.69);
+    tr.rleg_upper = X(-0.40 + k * 0.85); tr.rleg_lower = X(-0.12 - k * 1.08);
+    const fwd = Math.max(-1, Math.min(1, f.vx * f.facing / (JUMP_VX * 1.6)));
+    tr.root_R = X(-0.35 * fwd * (0.3 - 0.7 * up));
+  }
+  // Part of the way from the standing stance to the crouch: pushing off, landing.
+  function bendLegs(tr, a) {
+    const L = (s, c) => s + (c - s) * a;
+    tr.lleg_upper = X(L(0.43, CROUCH.l[0])); tr.lleg_lower = X(L(-0.16, CROUCH.l[1])); tr.lleg_foot = eye();
+    tr.rleg_upper = X(L(-0.40, CROUCH.r[0])); tr.rleg_lower = X(L(-0.12, CROUCH.r[1])); tr.rleg_foot = eye();
   }
   function guardArms(tr) {
     tr.larm_upper = arm(-1, -0.3); tr.rarm_upper = arm(1, -0.4);
@@ -118,7 +137,7 @@
       tr.rarm_upper = arm(1, -(1 - s)); tr.rarm_lower = arm(1, 0.95 * (1 - s));
       if (pose === 'punch') { tr.root_R = X(s * 0.2); tr.root_T = [0, 0, s * 5]; }
       if (pose === 'lowpunch') crouchLegs(tr);
-      if (pose === 'airpunch') tuckLegs(tr);
+      if (pose === 'airpunch') airLegs(tr, f);
     } else if (pose === 'kick') {
       // Lean back into the kick so the raised leg has room: at full extension the
       // shin stays 48 Å from the chest and the foot lands at mid-body height.
@@ -139,7 +158,7 @@
       guardArms(tr);
     } else if (pose === 'airkick') {
       // From the tuck, stamp the right leg down and forward.
-      tuckLegs(tr);
+      airLegs(tr, f);
       tr.rleg_upper = X(0.45 + s * 0.3); tr.rleg_lower = X(-1.2 + s * 2.1); tr.rleg_foot = X(s * 0.9);
       tr.root_R = X(s * 0.35);   // lean back, clear of the stamping leg
       tr.larm_upper = arm(-1, -0.3); tr.rarm_upper = arm(1, -1.2);
@@ -149,13 +168,18 @@
       const r = Math.sin(clamp01(1 - f.stun / 0.3) * Math.PI);
       tr.root_R = X(-r * 0.8); tr.rarm_upper = arm(1, -1 - r * 0.7); tr.root_T = [0, 0, -r * 12];
     } else if (pose === 'jump') {
-      tuckLegs(tr);
+      airLegs(tr, f);
     } else if (pose === 'ko') {
       const k = ease(f.t / 1.2);
       tr.root_R = X(-k * 1.3); tr.lleg_upper = X(0.43 + k * 0.9); tr.rleg_upper = X(-0.4 + k * 1.2);
       tr.larm_upper = arm(-1, k * 0.8); tr.rarm_upper = arm(1, k * 0.8);
     }
-    if (f.crouch && (pose === 'idle' || pose === 'walk' || pose === 'block')) crouchLegs(tr);
+    const standing = pose === 'idle' || pose === 'walk' || pose === 'block';
+    if (f.crouch && standing) crouchLegs(tr);
+    else if (standing && (f.squat > 0 || f.landing > 0)) {
+      // Knees bend to push off, and again to soak up a landing, harder for a longer fall.
+      bendLegs(tr, f.squat > 0 ? 0.55 * (1 - f.squat / SQUAT) : 0.75 * f.landPower * (f.landing / LANDING));
+    }
     return { tr, pose };
   }
 
@@ -165,6 +189,13 @@
     return [h(1), h(2), h(3)];
   });
 
+  const torsoY = p => rig.domains.torso.reduce((s, i) => s + p[i][1], 0) / rig.domains.torso.length;
+  // How high the torso rides above the floor standing, to carry a body through the air.
+  const TORSO_H = (() => {
+    const p = rig.pose({ lleg_upper: X(0.43), lleg_lower: X(-0.16), rleg_upper: X(-0.40), rleg_lower: X(-0.12) });
+    return torsoY(p) - Math.min(...[...rig.domains.lleg_foot, ...rig.domains.rleg_foot].map(i => p[i][1])) + 2;
+  })();
+
   // Where the rig wants each residue: posed, turned to face ±x, feet on the floor.
   // Damaged residues get a jitter that breaks the i→i+4 geometry, so py2Dmol's own
   // secondary-structure assignment stops calling them helix or strand.
@@ -172,13 +203,20 @@
     const { tr, pose } = transforms(f, clock);
     // Rig forward is +z, up is +y. A rotation, not a mirror, so chirality survives.
     const p = rig.pose(tr).map(([x, y, z]) => f.facing > 0 ? [z, y, -x] : [-z, y, x]);
-    const kicking = pose === 'kick' || pose === 'lowkick' || pose === 'airkick';
-    const support = kicking ? rig.domains.lleg_foot : [...rig.domains.lleg_foot, ...rig.domains.rleg_foot];
-    let lowest = Infinity;
-    for (const i of support) lowest = Math.min(lowest, p[i][1]);
+    // On the ground the feet stand on the floor (the planted one, mid-kick). In the air
+    // the torso rides the arc instead, so tucking lifts the legs rather than the body.
+    let lift;
+    if (f.y > 0) lift = f.y + TORSO_H - torsoY(p);
+    else {
+      const kicking = pose === 'kick' || pose === 'lowkick';
+      const support = kicking ? rig.domains.lleg_foot : [...rig.domains.lleg_foot, ...rig.domains.rleg_foot];
+      let lowest = Infinity;
+      for (const i of support) lowest = Math.min(lowest, p[i][1]);
+      lift = 2 - lowest;
+    }
     for (let i = 0; i < N; i++) {
       const q = p[i], d = f.unfold[i];
-      q[0] += f.x; q[1] += f.y + 2 - lowest;
+      q[0] += f.x; q[1] += lift;
       if (d < 0.01) continue;
       const j = jitterDir[i], wob = 0.75 + 0.25 * Math.sin(clock * 4 + i);
       q[0] += j[0] * 3.4 * d * wob; q[1] += j[1] * 3.4 * d * wob; q[2] += j[2] * 3.4 * d * wob;
@@ -373,7 +411,7 @@
     if (phase !== 'ready' || newMode) resetRound();
     phase = 'playing'; $('overlay').hidden = true;
     announce(`ROUND ${Math.min(round, 3)} · FIGHT!`);
-    beep(520, 0.2);
+    sfx.round();
   }
 
   function endRound() {
@@ -397,15 +435,22 @@
 
   function jump(f, dir) {
     f.vy = JUMP_V; f.vx = dir * JUMP_VX * (f.run ? 1.6 : 1); f.y = 0.01; f.crouch = false;
+    sfx.jump();
   }
 
   // Gravity in the air; on the ground, knockback slides out under friction.
   // Landing ends an air attack.
   function physics(f, dt) {
+    f.landing = Math.max(0, f.landing - dt);
     if (f.y > 0 || f.vy > 0) {
-      f.vy -= GRAVITY * dt; f.y = Math.max(0, f.y + f.vy * dt);
+      if (f.upReleased && f.vy > JUMP_V * SHORT_HOP) f.vy = JUMP_V * SHORT_HOP;   // let go early: a short hop
+      f.vy -= GRAVITY * (f.vy < 0 ? FALL_BOOST : 1) * dt;                          // falls faster than it rises
+      f.vx *= Math.exp(-AIR_DRAG * dt);
+      f.y = Math.max(0, f.y + f.vy * dt);
       if (f.y === 0) {
-        f.vy = 0;
+        f.landPower = clamp01(-f.vy / JUMP_V); f.landing = LANDING; f.vy = 0;
+        if (f.landPower > 0.8) shake(1.5);
+        if (f.landPower > 0.3) sfx.land(f.landPower);
         if (MOVES[f.action]?.air) { f.action = 'idle'; f.t = 0; f.cooldown = 0; }
       }
     } else f.vx *= Math.exp(-FRICTION * dt);
@@ -416,12 +461,12 @@
   // from the opponent to block, down to crouch, up to jump the way you are heading.
   function control(f, h, dt) {
     const dir = (h.has('right') ? 1 : 0) - (h.has('left') ? 1 : 0);
-    const free = f.stun <= 0 && !MOVES[f.action] && f.y === 0;
+    const free = f.stun <= 0 && !MOVES[f.action] && f.y === 0 && !f.squat;
     if (!dir) f.run = false;
     f.crouch = free && h.has('down');
     f.guard = free && dir === -f.facing && !f.run;
-    walk(f, f.crouch ? 0 : dir, dt);
-    if (h.has('up') && free) { jump(f, dir); h.delete('up'); }
+    walk(f, f.crouch || f.squat ? 0 : dir, dt);
+    if (h.has('up') && free) { f.squat = SQUAT; f.jumpDir = dir; f.upReleased = false; h.delete('up'); }
     if (f.queued) {   // an attack pressed with the jump comes out once airborne
       if (clock > f.queued.until) f.queued = null;
       else if (f.y > 0 && attack(f, f.queued.move)) f.queued = null;
@@ -435,9 +480,9 @@
     ai -= dt;
     if (ai <= 0) {
       ai = 0.4 + Math.random() * 0.4;
-      const free = c.stun <= 0 && !MOVES[c.action] && c.y === 0;
+      const free = c.stun <= 0 && !MOVES[c.action] && c.y === 0 && !c.squat;
       c.guard = free && MOVES[p.action] && gap < 90 && Math.random() < 0.25;
-      if (free && !c.guard && gap > 90 && gap < 160 && Math.random() < 0.2) jump(c, toward);
+      if (free && !c.guard && gap > 90 && gap < 160 && Math.random() < 0.2) { c.squat = SQUAT; c.jumpDir = toward; c.upReleased = false; }
       else if (free && !c.guard && gap < 75 && Math.random() < 0.45) {
         const r = Math.random();
         attack(c, r < 0.4 ? 'punch' : r < 0.7 ? 'kick' : r < 0.85 ? 'lowkick' : 'lowpunch');
@@ -453,6 +498,7 @@
     for (const f of fighters) {
       f.t += dt; f.stun = Math.max(0, f.stun - dt); f.cooldown = Math.max(0, f.cooldown - dt);
       physics(f, dt);
+      if (f.squat > 0 && (f.squat -= dt) <= 0) { f.squat = 0; jump(f, f.jumpDir); }
       if (MOVES[f.action] && f.t >= MOVES[f.action].duration) { f.action = 'idle'; f.t = 0; }
       // Left alone for a moment, a protein slowly refolds; lightly damaged spots first.
       f.sinceHit += dt;
@@ -483,7 +529,7 @@
     fighters.forEach((a, i) => {
       const m = MOVES[a.action], b = fighters[1 - i];
       if (!m || a.hit || a.t < m.active || b.hp === 0) return;
-      if (a.t > m.active + m.window) { a.hit = true; return; }   // whiffed
+      if (a.t > m.active + m.window) { a.hit = true; sfx.whiff(); return; }   // whiffed
       const at = contact(a, b);
       if (!at) return;
       a.hit = true;
@@ -492,16 +538,20 @@
       b.vx = a.facing * m.push * (blocked ? 0.35 : 1);
       wound(b, at, dmg, m.low);
       shake(blocked ? 2 : 3 + dmg * 0.4);
-      if (!blocked) { b.stun = m.stun; b.action = 'hurt'; b.t = 0; }
+      if (!blocked) {
+        b.stun = m.stun; b.action = 'hurt'; b.t = 0; b.squat = 0;
+        if (b.y > 0) b.vy = Math.max(b.vy, 260);   // hit in the air: popped up, then falls
+      }
       if (b.hp === 0) { b.action = 'ko'; b.t = 0; }
       hitstop = blocked ? 0.03 : 0.05 + dmg * 0.003;
       flash(at, blocked ? 'BLOCK' : m.text);
-      beep(blocked ? 110 : 320 - dmg * 8, 0.12);
+      if (blocked) sfx.block(); else sfx.hit(dmg / 13);
     });
 
     if (fighters.some(f => f.hp === 0) || time === 0) {
       phase = 'ko'; koTimer = 0;
       announce(fighters.some(f => f.hp === 0) ? 'DENATURED!' : 'TIME');
+      sfx.ko();
     }
   }
 
@@ -551,17 +601,73 @@
     $('round').textContent = 'ROUND ' + String(Math.min(round, 3)).padStart(2, '0');
   }
 
-  let audio, sound = false;
-  function beep(freq, dur) {
-    if (!sound) return;
+  // ---------------------------------------------------------------------- sound
+  // Synthesised, nothing to download: noise bursts and falling tones through a short
+  // reverb and a compressor, so hits land heavy. On by default; browsers start the
+  // audio at the first click or key press.
+  let audio, bus, sound = true;
+  function out() {
+    if (!sound) return null;
     try {
-      audio ??= new AudioContext();
-      const o = audio.createOscillator(), g = audio.createGain(), t = audio.currentTime;
-      o.type = 'triangle'; o.frequency.setValueAtTime(freq, t); o.frequency.exponentialRampToValueAtTime(freq / 3, t + dur);
-      g.gain.setValueAtTime(0.1, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-      o.connect(g).connect(audio.destination); o.start(); o.stop(t + dur);
-    } catch {}
+      if (!audio) {
+        audio = new AudioContext();
+        const comp = audio.createDynamicsCompressor();
+        comp.threshold.value = -18; comp.ratio.value = 6;
+        const len = audio.sampleRate * 1.4, ir = audio.createBuffer(2, len, audio.sampleRate);
+        for (let ch = 0; ch < 2; ch++) {
+          const d = ir.getChannelData(ch);
+          for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+        }
+        const verb = audio.createConvolver(), wet = audio.createGain();
+        verb.buffer = ir; wet.gain.value = 0.25;
+        bus = audio.createGain(); bus.gain.value = 0.9;
+        bus.connect(comp); bus.connect(verb).connect(wet).connect(comp);
+        comp.connect(audio.destination);
+      }
+      if (audio.state === 'suspended') audio.resume();
+      return audio;
+    } catch { return null; }
   }
+  function tone(freq, to, dur, { type = 'sine', gain = 0.3, delay = 0 } = {}) {
+    const a = out(); if (!a) return;
+    const t = a.currentTime + delay, o = a.createOscillator(), g = a.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, to), t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(bus); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function noise(dur, from, to, { gain = 0.3, filter = 'lowpass', delay = 0 } = {}) {
+    const a = out(); if (!a) return;
+    const t = a.currentTime + delay, len = Math.ceil(a.sampleRate * dur), buf = a.createBuffer(1, len, a.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const src = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain();
+    src.buffer = buf; f.type = filter;
+    f.frequency.setValueAtTime(from, t); f.frequency.exponentialRampToValueAtTime(to, t + dur);
+    g.gain.setValueAtTime(gain, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f).connect(g).connect(bus); src.start(t); src.stop(t + dur + 0.02);
+  }
+  const sfx = {
+    hit(p) {   // p: 0 light … 1+ heavy
+      tone(140, 38, 0.28, { gain: 0.5 * p + 0.2 });
+      noise(0.18, 3000, 200, { gain: 0.45 * p + 0.15 });
+      tone(900, 180, 0.07, { type: 'square', gain: 0.08 });
+    },
+    block() { tone(1500, 900, 0.09, { type: 'triangle', gain: 0.18 }); noise(0.05, 4000, 2000, { gain: 0.12, filter: 'highpass' }); },
+    whiff() { noise(0.12, 700, 2400, { gain: 0.06, filter: 'bandpass' }); },
+    jump() { noise(0.16, 300, 1400, { gain: 0.07, filter: 'bandpass' }); },
+    land(p) { tone(110, 35, 0.14, { gain: 0.35 * p }); noise(0.1, 600, 120, { gain: 0.15 * p }); },
+    round() {   // a rising sting, then a boom on FIGHT
+      [220, 277, 330, 440].forEach((f, i) => tone(f, f * 0.98, 0.35, { type: 'sawtooth', gain: 0.07, delay: i * 0.09 }));
+      tone(55, 40, 0.9, { gain: 0.35, delay: 0.36 });
+      noise(0.5, 5000, 300, { gain: 0.2, delay: 0.36 });
+    },
+    ko() {     // a long collapse, and a second impact as it hits the floor
+      tone(260, 28, 1.4, { type: 'sawtooth', gain: 0.18 });
+      tone(60, 25, 1.8, { gain: 0.5 });
+      noise(1.2, 1500, 60, { gain: 0.35 });
+      noise(0.5, 3000, 200, { gain: 0.3, delay: 0.45 });
+      tone(90, 30, 0.8, { gain: 0.4, delay: 0.45 });
+    },
+  };
 
   // ---------------------------------------------------------------------- input
   // One keyboard, two players, as Street Fighter on a PC: P1 on the left hand side,
@@ -586,12 +692,12 @@
   const lastTap = [{ act: '', t: -1 }, { act: '', t: -1 }];
   function strike(i, kind) {
     const f = fighters[i], h = held[i];
-    if (f.y === 0 && h.has('up')) { f.queued = { move: 'air' + kind, until: clock + BUFFER }; return; }
+    if (f.y === 0 && (h.has('up') || f.squat > 0)) { f.queued = { move: 'air' + kind, until: clock + BUFFER }; return; }
     attack(f, f.y > 0 ? 'air' + kind : h.has('down') ? 'low' + kind : kind);
   }
   function jumpCancel(i) {
     const f = fighters[i], m = MOVES[f.action];
-    if (!m || m.air || f.y > 0 || f.t > CANCEL || f.hit) return;
+    if (!m || m.air || f.y > 0 || f.t > Math.max(CANCEL, m.active) || f.hit) return;   // any time before it comes out
     f.queued = { move: 'air' + (f.action.endsWith('punch') ? 'punch' : 'kick'), until: clock + BUFFER };
     f.action = 'idle'; f.t = 0; f.cooldown = 0;
   }
@@ -623,7 +729,9 @@
   function release(k) {
     light(k, false);
     const r = route(k);
-    if (r) held[r[0]].delete(r[1]);
+    if (!r) return;
+    held[r[0]].delete(r[1]);
+    if (r[1] === 'up' && fighters) fighters[r[0]].upReleased = true;   // a tap is a short hop
   }
   const keyName = e => e.key.toLowerCase();
   addEventListener('keydown', e => {
@@ -646,7 +754,7 @@
   $('go').onclick = () => start();
   $('one').onclick = () => start(1);
   $('two').onclick = () => start(2);
-  $('sound').onclick = () => { sound = !sound; $('sound').textContent = sound ? 'SOUND ON' : 'SOUND OFF'; beep(400, 0.1); };
+  $('sound').onclick = () => { sound = !sound; $('sound').textContent = sound ? 'SOUND ON' : 'SOUND OFF'; sfx.block(); };
 
   // ----------------------------------------------------------------------- loop
   let last = performance.now(), acc = 0;
