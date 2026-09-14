@@ -218,11 +218,18 @@
         // Held: hanging from the grip, legs kicking. Flung: a backward tumble in the air,
         // arms and legs flung out, pitched over more and more until it lands.
         if (f.heldBy != null) {
-          T.pitch = -0.5; T.larmU = T.rarmU = -1.6; T.larmL = T.rarmL = 0.4; T.head = -0.3;
-          T.legs = { l: [0.6 + 0.3 * Math.sin(env.clock * 14), -1.2, -0.4], r: [0.2 - 0.3 * Math.sin(env.clock * 14), -1.4, -0.4] };
+          // Lifted, it turns over with the lift: back, then feet over the head, so it
+          // leaves the hands upside down; the legs kick, then trail.
+          const g = f.heldProg || 0;
+          f.tumble = -0.3 - 2.3 * g;
+          T.pitch = f.tumble; T.larmU = T.rarmU = -1.6 + 0.6 * g; T.larmL = T.rarmL = 0.4; T.head = -0.3 + 0.4 * g;
+          const kick = Math.sin(env.clock * 14) * (1 - g);
+          T.legs = { l: [0.6 + 0.3 * kick - 0.5 * g, -1.2 + 0.7 * g, -0.4], r: [0.2 - 0.3 * kick - 0.3 * g, -1.4 + 0.8 * g, -0.4] };
         } else {
-          f.tumble = (f.tumble || 0) + 6.5 * (1 / 60);
-          T.pitch = -0.5 - f.tumble; T.larmU = T.rarmU = -2.2; T.larmL = T.rarmL = 0.1; T.head = 0.2;
+          // Flung: the turn carries on through the air, a full circle by about the time
+          // it lands, arms and legs out.
+          f.tumble = (f.tumble ?? -2.6) - 6.5 * (1 / 60);
+          T.pitch = f.tumble; T.larmU = T.rarmU = -2.2; T.larmL = T.rarmL = 0.1; T.head = 0.2;
           T.legs = { l: [0.9, -1.0, 0.2], r: [-0.4, -1.4, 0.3] };
         }
       } else if (pose === 'block') {

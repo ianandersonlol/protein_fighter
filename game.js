@@ -620,7 +620,7 @@
         f.landPower = clamp01(-f.vy / JUMP_V); f.landing = LANDING; f.vy = 0;
         if (f.landPower > 0.3) sfx.land(f.landPower);
         if (MOVES[f.action]?.air) { f.action = 'idle'; f.t = 0; f.cooldown = 0; }
-        if (f.action === 'thrown' && f.heldBy == null) { f.action = 'hurt'; f.t = 0; f.stun = Math.max(f.stun, 0.35); f.landPower = 1; sfx.land(1); CAMERA.shake = 4; window.Cell?.ripple(f.x, 1.6); }
+        if (f.action === 'thrown' && f.heldBy == null) { f.action = 'hurt'; f.t = 0; f.stun = Math.max(f.stun, 0.45); f.lastLow = true; f.landPower = 1; f.tumble = null; sfx.land(1); CAMERA.shake = 4; window.Cell?.ripple(f.x, 1.6); }   // down in a heap, knees given
       }
     } else f.vx *= Math.exp(-FRICTION * dt);
     f.x += f.vx * dt;
@@ -878,19 +878,20 @@
   function grab(i) {
     const a = fighters[i], b = fighters[1 - i];
     a.hit = true;
-    b.action = 'thrown'; b.t = 0; b.heldBy = i; b.stun = 0; b.blockStun = 0; b.squat = 0; b.crouch = false; b.queued = null; b.vx = 0; b.vy = 0;
+    b.action = 'thrown'; b.t = 0; b.heldBy = i; b.heldProg = 0; b.tumble = null; b.stun = 0; b.blockStun = 0; b.squat = 0; b.crouch = false; b.queued = null; b.vx = 0; b.vy = 0;
     b.facing = -a.facing; b.combo = 0;
   }
   function holdThrown(b) {
     const a = fighters[b.heldBy], m = MOVES.throw;
     if (a.action !== 'throw') { b.heldBy = null; b.action = 'idle'; return; }   // the thrower was interrupted
     const prog = clamp01((a.t - m.active) / m.hold);
-    b.x = a.x + a.facing * (26 - 40 * prog);   // carried in, up, and over
-    b.y = 55 * Math.sin(prog * Math.PI * 0.5);
+    b.heldProg = prog;
+    b.x = a.x + a.facing * (26 - 44 * prog);   // carried in, up, and over the head
+    b.y = 58 * Math.sin(prog * Math.PI * 0.5);
     if (prog < 1) return;
     // The release: flung backward over the thrower, damage at the torso, and a tumble.
     const power = strikePower(a, 'throw'), at = b.coords[b.form.mid].slice();
-    b.heldBy = null; b.vx = -a.facing * m.push * power; b.vy = 330; b.y = Math.max(b.y, 1); b.tumble = 0;
+    b.heldBy = null; b.heldProg = 0; b.vx = -a.facing * m.push * power; b.vy = 330; b.y = Math.max(b.y, 1); b.tumble = -2.6;
     wound(b, at, m.damage * DAMAGE_SCALE * power, false, -a.facing);
     dent(b, at, -a.facing, m.damage * power);
     b.lastHit = at; b.stun = m.stun; b.lastLow = false;
@@ -1490,7 +1491,7 @@
   // last packet (hits, callouts, the finisher, sounds). The unfolding travels only when
   // it changed. About 2 KB a packet.
   const SNAP = ['x', 'y', 'vx', 'vy', 'facing', 'hp', 'crouch', 'sinceHit', 'squat', 'jumpDir', 'upReleased', 'landing', 'landPower',
-    'fatigue', 'jit', 'settle', 'action', 't', 'hit', 'stun', 'cooldown', 'limp', 'seed', 'lastLow', 'blockStun', 'blockHold', 'heldBy', 'combo', 'comboAir', 'specialAt'];
+    'fatigue', 'jit', 'settle', 'action', 't', 'hit', 'stun', 'cooldown', 'limp', 'seed', 'lastLow', 'blockStun', 'blockHold', 'heldBy', 'heldProg', 'tumble', 'combo', 'comboAir', 'specialAt'];
   // What a guest keeps its own for the fighter it drives: its keys have already moved
   // it, and the host's word on where it was a moment ago would only drag it back.
   const OWN = new Set(['y', 'vy', 'crouch', 'squat', 'jumpDir', 'upReleased', 'landing', 'landPower', 'action', 't']);
