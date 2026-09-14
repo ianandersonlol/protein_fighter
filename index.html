@@ -101,6 +101,13 @@
   .players { display: inline-flex; margin-top: 14px; border: 2px solid var(--ink); border-radius: 999px; overflow: hidden; }
   .players button { background: transparent; color: var(--ink); border: 0; padding: 5px 12px; font-size: 11px; letter-spacing: 1px; }
   .players button.on { background: var(--ink); color: var(--bg); }
+  /* Which protein each player fights as. */
+  .picks { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; margin-top: 10px; }
+  .pick { display: inline-flex; align-items: center; gap: 6px; }
+  .pick small { font-size: 10px; letter-spacing: 1px; opacity: 0.7; }
+  .pick button { background: transparent; color: var(--ink); border: 2px solid var(--ink); padding: 3px 9px; font-size: 10px; letter-spacing: 1px; }
+  .pick button + button { border-left: 0; }
+  .pick button.on { background: var(--ink); color: var(--bg); }
   button { font: inherit; cursor: pointer; border: 2px solid var(--ink); background: var(--ink); color: var(--bg); padding: 10px 22px; letter-spacing: 1px; }
   button:disabled { opacity: 0.5; cursor: wait; }
   kbd { border: 1px solid var(--ink); padding: 0 4px; }
@@ -198,7 +205,8 @@
   <div id="overlay" class="ended">
     <h1 id="title" hidden></h1>
     <p id="msg" hidden></p>
-    <p id="modes"><button id="one" disabled>START</button><br><span class="players" role="group" aria-label="Players"><button data-players="1" tabindex="-1" class="on">1 PLAYER</button><button data-players="2" tabindex="-1">2 PLAYERS</button><button data-players="3" tabindex="-1">REMOTE</button></span></p>
+    <p id="modes"><button id="one" disabled>START</button><br><span class="players" role="group" aria-label="Players"><button data-players="1" tabindex="-1" class="on">1 PLAYER</button><button data-players="2" tabindex="-1">2 PLAYERS</button><button data-players="3" tabindex="-1">REMOTE</button></span>
+      <span class="picks"><span class="pick" data-player="0" role="group" aria-label="P1 protein"><small>P1</small><button data-pick="0:barrel" tabindex="-1" class="on">BARREL</button><button data-pick="0:helix" tabindex="-1">BUNDLE</button></span><span class="pick" data-player="1" role="group" aria-label="P2 protein"><small>P2</small><button data-pick="1:barrel" tabindex="-1">BARREL</button><button data-pick="1:helix" tabindex="-1" class="on">BUNDLE</button></span></span></p>
     <div id="qr" hidden></div>
     <div id="joinbox" hidden><input id="joinlink" readonly spellcheck="false" aria-label="Join link"><button id="copylink" type="button">COPY</button></div>
     <p><button id="go" hidden>FIGHT</button></p>

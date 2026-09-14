@@ -87,6 +87,10 @@
     for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) form.paeCount[(i / PAE_BIN | 0) * pb + (j / PAE_BIN | 0)]++;
   }
 
+  // Which protein each player fights as: the picks on the title screen. A guest picks its
+  // own (P2) and tells the host; the host's picks reach the guest with each new round.
+  const pick = ['barrel', 'helix'];
+
   function newFighter(x, facing, form) {
     const N = form.n;
     return {
@@ -528,10 +532,10 @@
 
   function resetRound() {
     const old = fighters;
-    fighters = [newFighter(-80, 1, FORMS.barrel), newFighter(80, -1, FORMS.helix)];
+    fighters = [newFighter(-80, 1, FORMS[pick[0]]), newFighter(80, -1, FORMS[pick[1]])];
     CAMERA.x = 0;
     clearFinisher();
-    netEvent('reset');
+    netEvent('reset', pick.slice());
     time = 99; koTimer = 0; ai = 1.5; hitstop = 0;
     for (const h of held) h.clear();
     for (const f of fighters) f.coords = body(f, clock);
@@ -540,8 +544,10 @@
     // Then each body starts from wherever the last round left it, heap and all, and pulls
     // itself back together, rather than popping into place.
     if (old) fighters.forEach((f, i) => {
+      if (old[i].form !== f.form) return;
       f.coords = old[i].coords.map(q => q.slice()); f.prev = old[i].coords.map(q => q.slice()); f.settle = 1;
     });
+    if (viewer && old && (old[0].form !== fighters[0].form || old[1].form !== fighters[1].form)) startViewer(fighters[0].coords, fighters[1].coords);
   }
 
   // button: the one way on (resume, next round), or none to offer a choice of mode.
@@ -1240,6 +1246,23 @@
   }
   $('go').onclick = () => start();
   $('one').onclick = () => start(mode);
+  // The protein picks: each is a two-way switch; a change on the title screen swaps the
+  // body at once, mid-match it takes effect at the next round.
+  function showPicks() {
+    for (const b of document.querySelectorAll('[data-pick]')) {
+      const [i, form] = b.dataset.pick.split(':');
+      b.classList.toggle('on', pick[+i] === form);
+    }
+  }
+  for (const b of document.querySelectorAll('[data-pick]')) {
+    b.onclick = () => {
+      const [i, form] = b.dataset.pick.split(':');
+      if (net.guest && +i !== 1) return;
+      pick[+i] = form; showPicks();
+      if (net.guest) { net.send?.({ t: 'pick', form }); return; }
+      if (phase === 'ready') resetRound();
+    };
+  }
   for (const b of document.querySelectorAll('[data-players]')) {
     b.onclick = () => {
       mode = +b.dataset.players;
@@ -1377,7 +1400,7 @@
     net.pkts++; net.bytes += JSON.stringify(h).length + (u ? u.byteLength || u.length || 0 : 0);
     // What happened first: a new round makes new fighters, a hit is replayed on them.
     for (const e of h.ev || []) {
-      if (e[0] === 'reset') resetRound();
+      if (e[0] === 'reset') { if (e[1]) { pick[0] = e[1][0]; pick[1] = e[1][1]; showPicks(); } resetRound(); }
       else if (e[0] === 'hit' && fighters[e[1]].motion) landHit(e[1], e[2], e[3], e[4]);
       else if (e[0] === 'block' && fighters[e[1]].motion) blockHit(e[1], e[2], e[3], e[4]);
       else if (e[0] === 'flash') flash([e[1], 0, 0], e[2]);
@@ -1411,6 +1434,7 @@
     held[1].add(act);
   }
   function hostInput(m) {
+    if (m && m.t === 'pick' && FORMS[m.form]) { pick[1] = m.form; showPicks(); if (phase === 'ready') resetRound(); return; }
     if (!m || m.t !== 'in') return;
     if (m.a === 'escape') return press('escape');
     if (phase !== 'playing') return;
@@ -1447,6 +1471,7 @@
     $('modes').hidden = true; $('go').hidden = true;
     overlay('CONNECTING', 'to the host…', null); $('modes').hidden = true;
     document.querySelector('.pad.left .who').textContent = 'YOU';
+    document.querySelector('.picks').hidden = false; document.querySelector('.pick[data-player="0"]').hidden = true;   // a guest picks only its own
     mode = 3;   // P2 by the guest's own keys, P1 by the host's, as relayed
     const link = window.Net.join(id, {
       onOpen: () => { $('title').textContent = 'CONNECTED'; $('msg').textContent = 'waiting for the host'; },
