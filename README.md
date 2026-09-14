@@ -36,7 +36,13 @@ then http://localhost:8000. WebGL2 is required.
 
 ## Controls
 
-Pick 1 player (against the CPU) or 2 players on one keyboard.
+Pick 1 player (against the CPU), 2 players on one keyboard, or REMOTE: a second device
+joins over the network. REMOTE shows a QR code; scan it with a phone (or open the link
+it encodes) and the fight starts, that device playing P2 with its on-screen keys or
+keyboard. The host runs the game and streams every residue's position to the guest
+thirty times a second over a WebRTC data channel; the guest sends only its key presses.
+The connection is set up through PeerJS's public signaling server, so both devices need
+internet even on the same Wi-Fi, and the page loads PeerJS and a QR library from unpkg.
 
 | | P1 (left hand) | P2 (right hand) |
 | --- | --- | --- |
@@ -88,6 +94,8 @@ touchscreen the on-screen keys are the controls.
 - `index.html` — page, HUD, styles
 - `game.js` — combat, CPU, damage and unfolding, the body physics, PAE, sound, and the
   py2Dmol scene
+- `net.js` — remote play: the PeerJS connection and the QR code; the state packets and
+  the guest's drawing are in `game.js`
 - `motion.js` — how a fighter moves, in one pass: pose on springs, hips, planted feet that
   step, two-bone leg IK, then the rig; the arms, head and shins swing on their own
   springs, and a blow jolts them

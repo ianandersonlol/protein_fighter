@@ -492,7 +492,11 @@
 
   // ------------------------------------------------------------------- the match
   const held = [new Set(), new Set()];   // directions each player is holding
-  let mode = 1;                           // 1: you vs the CPU · 2: two players, one keyboard
+  let mode = 1;                           // 1: you vs the CPU · 2: two players, one keyboard · 3: a remote challenger (net.js)
+  // Remote play. Hosting: `link` streams state to the guest, who drives P2 through held[1].
+  // A guest page (?join=…) runs no game of its own: it draws the host's state and sends keys.
+  const net = { link: null, guest: !!window.Net?.joinId(), events: [], seq: 0, fresh: false, paeReset: true };
+  const netEvent = (...e) => { if (net.link) net.events.push(e); };
   let fighters, wins = [0, 0], round = 1, time = 60, phase = 'ready', clock = 0, koTimer = 0, ai = 0, hitstop = 0;
   const names = () => ['P1', 'P2'];   // the CPU is P2 too
 
@@ -501,6 +505,7 @@
     fighters = [newFighter(-80, 1, FORMS.barrel), newFighter(80, -1, FORMS.helix)];
     CAMERA.x = 0;
     clearFinisher();
+    netEvent('reset');
     time = 99; koTimer = 0; ai = 1.5; hitstop = 0;
     for (const h of held) h.clear();
     for (const f of fighters) f.coords = body(f, clock);
@@ -526,6 +531,8 @@
   function start(newMode) {
     startMusic();
     if (phase === 'paused' && !newMode) { phase = 'playing'; $('overlay').hidden = true; return; }
+    if (newMode === 3 && !net.link) return hostRemote();   // show the code; the fight starts when the challenger arrives
+    if (newMode && newMode !== 3 && net.link) { window.Net.stop(); net.link = null; }
     if (newMode) { mode = newMode; wins = [0, 0]; round = 1; }
     if (phase !== 'ready' || newMode) resetRound();
     phase = 'playing'; $('overlay').hidden = true; $('overlay').classList.remove('ended');
@@ -682,7 +689,7 @@
     }
 
     control(p, held[0], dt);
-    if (mode === 2) control(c, held[1], dt);
+    if (mode === 2 || mode === 3) control(c, held[1], dt);
     else cpu(c, p, dt);
 
     for (const f of fighters) f.x = Math.max(-ARENA, Math.min(ARENA, f.x));
@@ -792,6 +799,7 @@
 
   // ------------------------------------------------------------------------ HUD
   function flash(at, text) {
+    netEvent('flash', at[0], text);
     const el = $('impact');
     el.textContent = text;
     el.style.left = 50 + at[0] * 0.28 + '%';
@@ -800,7 +808,8 @@
   const announce = text => flash([0, 0, 0], text);
   // The finisher, Mortal Kombat style: the word slams in a letter at a time over the
   // collapsing loser, the arena shakes, and the announcer growls it.
-  function finisher(text) {
+  function finisher(text, silent = false) {
+    netEvent('finish', text);
     const el = $('finish');
     el.innerHTML = '';
     [...text].forEach((ch, i) => {
@@ -812,7 +821,7 @@
     setTimeout(() => el.classList.add('settle'), text.length * 75 + 350);
     const arena = document.querySelector('.arena');
     arena.classList.remove('shake'); void arena.offsetWidth; arena.classList.add('shake');
-    sfx.denatured();
+    if (!silent) sfx.denatured();
   }
   const clearFinisher = () => { const el = $('finish'); el.hidden = true; el.innerHTML = ''; el.classList.remove('settle'); };
 
@@ -948,15 +957,17 @@
       return audio;
     } catch { return null; }
   }
-  function tone(freq, to, dur, { type = 'sine', gain = 0.3, delay = 0, dest = bus } = {}) {
+  function tone(freq, to, dur, { type = 'sine', gain = 0.3, delay = 0, dest = null } = {}) {
     const a = out(); if (!a) return;
+    dest = dest || bus;   // the bus exists once out() has run, which may be only now (a guest hears sounds before it has touched anything)
     const t = a.currentTime + delay, o = a.createOscillator(), g = a.createGain();
     o.type = type; o.frequency.setValueAtTime(freq, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, to), t + dur);
     g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     o.connect(g).connect(dest); o.start(t); o.stop(t + dur + 0.02);
   }
-  function noise(dur, from, to, { gain = 0.3, filter = 'lowpass', delay = 0, dest = bus } = {}) {
+  function noise(dur, from, to, { gain = 0.3, filter = 'lowpass', delay = 0, dest = null } = {}) {
     const a = out(); if (!a) return;
+    dest = dest || bus;
     if (!noiseBuf) {   // one shared two seconds of noise, each burst starting somewhere in it
       noiseBuf = a.createBuffer(1, a.sampleRate * 2, a.sampleRate);
       const d = noiseBuf.getChannelData(0);
@@ -1057,6 +1068,8 @@
     },
   };
 
+  for (const k of Object.keys(sfx)) { const fn = sfx[k]; sfx[k] = (...a) => { fn(...a); netEvent('sfx', k, ...a); }; }
+
   // ---------------------------------------------------------------------- input
   // One keyboard, two players, as Street Fighter on a PC: P1 on the left hand side,
   // P2 on the right. Playing the CPU, every key drives P1, and J/K punch and kick too.
@@ -1067,7 +1080,7 @@
   const SOLO = { j: 'punch', k: 'kick' };
   function route(k) {
     if (BINDINGS[0][k]) return [0, BINDINGS[0][k]];
-    if (mode === 1 && SOLO[k]) return [0, SOLO[k]];
+    if (mode !== 2 && SOLO[k]) return [0, SOLO[k]];
     if (BINDINGS[1][k]) return [mode === 2 ? 1 : 0, BINDINGS[1][k]];
     return null;
   }
@@ -1090,6 +1103,7 @@
   }
 
   function press(k) {
+    if (net.guest) return guestPress(k);
     if (k === 'escape') {
       if (phase === 'playing') { phase = 'paused'; for (const h of held) h.clear(); overlay('PAUSED', '', 'RESUME'); duckMusic(0.08); }
       else if (phase === 'paused') start();
@@ -1113,6 +1127,7 @@
     light(k, false);
     const r = route(k);
     if (!r) return;
+    if (net.guest) { if (r[1] !== 'punch' && r[1] !== 'kick') net.send?.({ t: 'in', d: 0, a: r[1] }); return; }
     held[r[0]].delete(r[1]);
     if (r[1] === 'up' && fighters) fighters[r[0]].upReleased = true;   // a tap is a short hop
   }
@@ -1128,7 +1143,7 @@
   addEventListener('blur', () => {
     for (const h of held) h.clear();
     for (const el of document.querySelectorAll('.cap.down')) el.classList.remove('down');
-    if (phase === 'playing') press('escape');
+    if (phase === 'playing' && !net.guest) press('escape');
   });
   for (const b of document.querySelectorAll('[data-key]')) {
     b.onpointerdown = e => { e.preventDefault(); light(b.dataset.key, true); press(b.dataset.key); };
@@ -1181,6 +1196,13 @@
   function frame(now) {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
+    if (net.guest) {
+      frameCamera(dt);
+      if (net.fresh) { net.fresh = false; draw(); fighters.forEach((f, i) => { updatePAE(f); drawPAE(f, i); }); }
+      hud();
+      requestAnimationFrame(frame);
+      return;
+    }
     let moved = false;
     if (hitstop > 0) hitstop -= dt;
     else if (phase !== 'paused') {
@@ -1200,17 +1222,111 @@
     if (moved) {
       draw();
       fighters.forEach((f, i) => { updatePAE(f); drawPAE(f, i); });   // live PAE maps
+      if (net.link && (++net.seq & 1) === 0) sendState();
     }
     hud();
     requestAnimationFrame(frame);
+  }
+
+  // ---------------------------------------------------------------- remote play
+  // The state the guest needs to draw the fight: every residue's position (0.05 Å
+  // steps in 16 bits) and unfolding (a byte), the numbers on the HUD, what the overlay
+  // says, and what happened since the last packet (callouts, the finisher, sounds).
+  function sendState() {
+    const [a, b] = fighters, n = a.form.n + b.form.n;
+    const bytes = new Uint8Array(n * 7), xyz = new Int16Array(bytes.buffer, 0, n * 3);
+    let k = 0, u = n * 6;
+    for (const f of fighters) for (let i = 0; i < f.form.n; i++) {
+      const q = f.coords[i];
+      xyz[k++] = Math.round(q[0] * 20); xyz[k++] = Math.round(q[1] * 20); xyz[k++] = Math.round(q[2] * 20);
+      bytes[u++] = Math.round(f.unfold[i] * 255);
+    }
+    const h = {
+      ph: phase, t: time, r: round, w: wins, hp: [a.hp, b.hp], x: [a.x, b.x], n: [a.form.n, b.form.n],
+      ov: { on: !$('overlay').hidden, ti: $('title').hidden ? '' : $('title').textContent, ms: $('msg').hidden ? '' : $('msg').textContent, end: $('overlay').classList.contains('ended') },
+      ev: net.events,
+    };
+    net.events = [];
+    net.tx = (net.tx || 0) + 1;
+    net.link.send({ h, c: bytes });
+  }
+  function applyState(m) {
+    const { h, c } = m || {};
+    net.rx = (net.rx || 0) + 1; net.last = { type: c && c.constructor && c.constructor.name, len: c && (c.byteLength ?? c.length), keys: m && Object.keys(m) };
+    if (!h || !c) return;
+    const bytes = c instanceof Uint8Array ? c : new Uint8Array(c), n = h.n[0] + h.n[1];
+    if (bytes.length !== n * 7 || fighters[0].form.n !== h.n[0] || fighters[1].form.n !== h.n[1]) return;
+    const xyz = new Int16Array(bytes.buffer, bytes.byteOffset, n * 3);
+    let k = 0, u = n * 6;
+    fighters.forEach((f, j) => {
+      for (let i = 0; i < f.form.n; i++) {
+        const q = f.coords[i];
+        q[0] = xyz[k++] / 20; q[1] = xyz[k++] / 20; q[2] = xyz[k++] / 20;
+        f.unfold[i] = bytes[u++] / 255;
+      }
+      f.hp = h.hp[j]; f.x = h.x[j];
+    });
+    phase = h.ph; time = h.t; round = h.r; wins = h.w;
+    for (const e of h.ev || []) {
+      if (e[0] === 'flash') flash([e[1], 0, 0], e[2]);
+      else if (e[0] === 'finish') finisher(e[1], true);
+      else if (e[0] === 'reset') { clearFinisher(); net.paeReset = true; }
+      else if (e[0] === 'sfx' && sfx[e[1]]) sfx[e[1]](...e.slice(2));
+    }
+    if (net.paeReset) { net.paeReset = false; for (const f of fighters) { f.paeLocal = localPositions(f.coords); f.pae.fill(0); } }
+    $('title').textContent = h.ov.ti; $('title').hidden = !h.ov.ti;
+    $('msg').textContent = h.ov.ms; $('msg').hidden = !h.ov.ms;
+    $('overlay').hidden = !h.ov.on; $('overlay').classList.toggle('ended', h.ov.end);
+    net.fresh = true;
+  }
+  // A guest's keys go to the host; strikes as presses, directions as held or released.
+  function guestPress(k) {
+    startMusic();
+    if (k === 'escape') return net.send?.({ t: 'in', a: 'escape' });
+    const r = route(k);
+    if (r) net.send?.({ t: 'in', d: 1, a: r[1] });
+  }
+  function hostInput(m) {
+    if (!m || m.t !== 'in') return;
+    if (m.a === 'escape') return press('escape');
+    if (phase !== 'playing') return;
+    if (m.a === 'punch' || m.a === 'kick') return strike(1, m.a);
+    if (m.d) { if (m.a === 'up') jumpCancel(1); held[1].add(m.a); }
+    else { held[1].delete(m.a); if (m.a === 'up') fighters[1].upReleased = true; }
+  }
+  function hostRemote() {
+    mode = 3;
+    overlay('REMOTE', 'Getting a code…', null);
+    $('modes').hidden = true; $('qr').hidden = false; $('qr').innerHTML = '';
+    net.link = window.Net.host({
+      onLink: link => { $('msg').textContent = link; $('msg').hidden = false; if (!window.Net.showQR($('qr'), link)) $('qr').hidden = true; $('title').textContent = 'SCAN TO JOIN'; },
+      onGuest: () => { $('qr').hidden = true; $('modes').hidden = false; start(3); },
+      onInput: hostInput,
+      onClose: () => { held[1].clear(); if (phase === 'playing') { phase = 'paused'; duckMusic(0.08); } overlay('CHALLENGER LEFT', '', 'MENU'); $('go').onclick = () => { $('go').onclick = () => start(); window.Net.stop(); net.link = null; phase = 'ready'; mode = 1; overlay('', '', null); }; },
+      onError: msg => { $('title').textContent = 'NO CONNECTION'; $('msg').textContent = msg; $('msg').hidden = false; $('qr').hidden = true; $('modes').hidden = false; window.Net.stop(); net.link = null; },
+    });
+    if (!net.link) { $('modes').hidden = false; $('qr').hidden = true; }
+  }
+  function joinRemote(id) {
+    $('modes').hidden = true; $('go').hidden = true;
+    overlay('CONNECTING', 'to the host…', null); $('modes').hidden = true;
+    document.querySelector('.pad.left .who').textContent = 'YOU';
+    const link = window.Net.join(id, {
+      onOpen: () => { $('title').textContent = 'CONNECTED'; $('msg').textContent = 'waiting for the host'; },
+      onState: applyState,
+      onClose: () => { overlay('DISCONNECTED', '', 'RELOAD'); $('go').hidden = false; $('go').onclick = () => location.reload(); },
+      onError: msg => { overlay('NO CONNECTION', msg, 'RELOAD'); $('go').hidden = false; $('go').onclick = () => location.reload(); },
+    });
+    net.send = link ? link.send : null;
   }
 
   try {
     applyTheme();
     resetRound();
     startViewer(fighters[0].coords, fighters[1].coords);
-    window.proteinFighter = { get fighters() { return fighters; }, get mode() { return mode; }, get viewer() { return viewer; }, camera: CAMERA, forms: FORMS, barrelGap, updatePAE };   // for poking at from the console
+    window.proteinFighter = { get fighters() { return fighters; }, get mode() { return mode; }, get viewer() { return viewer; }, camera: CAMERA, forms: FORMS, barrelGap, updatePAE, net };   // for poking at from the console
     $('one').disabled = false;
+    if (net.guest) joinRemote(window.Net.joinId());
     requestAnimationFrame(frame);
   } catch (e) {
     console.error(e);
