@@ -105,10 +105,9 @@ Music and effects are synthesised in the browser with WebAudio; SOUND ON/OFF tog
 
 The switches under the timer pick a dark or light theme and how the proteins are
 coloured: by pLDDT (damage), as a rainbow along the chain, blue at the N-terminus to
-red at the C-terminus, which shows how each protein is threaded, by secondary structure,
-or by hydropathy of a placeholder sequence (helices an amphipathic heptad, strands
-alternating valine and threonine, loops polar). Both choices are remembered. Clicking a
-PAE map lights the two stretches of residues that pixel scores on the body. The camera follows the fight, closing in when the fighters are close and
+red at the C-terminus, which shows how each protein is threaded, or by secondary
+structure. Both choices are remembered. Clicking a PAE map lights the two stretches of
+residues that pixel scores on the body. The camera follows the fight, closing in when the fighters are close and
 pulling back as they part, so the game fits a phone as well as a monitor; on a
 touchscreen the on-screen keys are the controls.
 

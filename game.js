@@ -64,14 +64,8 @@
     const reach = rig.armParam('rarm');
     const fist = D.rarm.filter((_, k) => reach[k] > 0.64);
     const torso = D.torso;
-    // A placeholder sequence, written into the PDB the scene is built from so the
-    // hydropathy colouring has something to show: helices get an amphipathic heptad,
-    // strands alternate an inward valine and an outward threonine, loops are polar.
-    const sec = window.py2dmolCartoon?.assignSecondaryOpen?.(rig.bind.map(p => ({ x: p[0], y: p[1], z: p[2] })), n, null, {})?.sec || [];
-    const HEPTAD = ['LEU', 'GLU', 'ALA', 'LEU', 'LYS', 'LYS', 'GLU'], LOOP = ['GLY', 'SER', 'ASN', 'GLY', 'ASP'];
-    const names = Array.from({ length: n }, (_, i) => sec[i] === 'H' ? HEPTAD[i % 7] : sec[i] === 'E' ? (i % 2 ? 'THR' : 'VAL') : LOOP[i % 5]);
     return {
-      name, rig, n, motion, legs, legIdx, fist, names,
+      name, rig, n, motion, legs, legIdx, fist,
       armIdx: [...D.larm, ...D.rarm], kick: [...D.rleg_shin, ...D.rleg_foot], frontKick: [...D.lleg_shin, ...D.lleg_foot], torso,
       mid: torso[torso.length >> 1],   // a residue in the middle of the body
       // Deterministic per-residue direction, so jitter is stable frame to frame.
@@ -395,7 +389,7 @@
   // the chain, which shows how each protein is threaded. pLDDT unless chosen otherwise.
   const COLOUR_KEY = 'protein-fighter-colour';
   let colour = (() => {
-    try { const v = localStorage.getItem(COLOUR_KEY); if (['rainbow', 'ss', 'hydro'].includes(v)) return v; } catch {}
+    try { const v = localStorage.getItem(COLOUR_KEY); if (['rainbow', 'ss'].includes(v)) return v; } catch {}
     return 'plddt';
   })();
   function applyColour() {
@@ -404,14 +398,14 @@
       b.classList.toggle('on', on);
       b.setAttribute('aria-pressed', String(on));
     }
-    if (viewer) viewer.setColor({ rainbow: 'rainbow', ss: 'ss', hydro: 'hydrophobicity' }[colour] || 'deepmind');   // deepmind: AlphaFold DB pLDDT colours
+    if (viewer) viewer.setColor({ rainbow: 'rainbow', ss: 'ss' }[colour] || 'deepmind');   // deepmind: AlphaFold DB pLDDT colours
   }
 
   function pdbText(a, b) {
     let s = '', n = 1;
-    for (const [chain, coords, f] of [['A', a, fighters[0]], ['B', b, fighters[1]]]) {
+    for (const [chain, coords] of [['A', a], ['B', b]]) {
       coords.forEach((q, i) => {
-        s += `ATOM  ${String(n++).padStart(5)}  CA  ${(f.form.names[i] || 'GLY').padEnd(3)} ${chain}${String(i + 1).padStart(4)}    ` +
+        s += `ATOM  ${String(n++).padStart(5)}  CA  GLY ${chain}${String(i + 1).padStart(4)}    ` +
           q.map(v => v.toFixed(3).padStart(8)).join('') + '  1.00 90.00           C\n';
       });
       s += 'TER\n';
