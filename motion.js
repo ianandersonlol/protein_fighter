@@ -138,7 +138,7 @@
     // What the body is doing, as targets. env: clock, and what damage has done to its
     // bearing - sag (slumped), crawl (nearly gone), tired (breathing), kickRange.
     function poseOf(f, env) {
-      const pose = f.hp <= 0 ? 'ko' : f.stun > 0 ? 'hurt' : f.blockStun > 0 ? 'block' : MOVES[f.action] ? f.action
+      const pose = f.hp <= 0 ? 'ko' : f.action === 'thrown' ? 'thrown' : f.stun > 0 ? 'hurt' : f.blockStun > 0 ? 'block' : MOVES[f.action] ? f.action
         : f.y > 0 ? 'jump' : f.action;
       const s = MOVES[pose] ? extension(pose, f.t) : 0;
       const { sag, crawl, tired, kickRange: kr } = env;
@@ -199,6 +199,25 @@
         T.legs.r = [0.45 + kr * s * 0.3, -1.2 + kr * s * 2.1, kr * s * 0.9];
         T.pitch = kr * s * 0.35;
         T.larmU = -0.3; T.rarmU = -1.2;
+      } else if (pose === 'throw') {
+        // Reach out with both arms, take hold, heave up and over the head, and follow
+        // through: the torso leans back under the weight, then forward as it lets go.
+        const m = MOVES.throw, u = f.t / m.duration, reach = ease(u / 0.15), lift = ease((u - 0.15) / 0.4), go = ease((u - 0.55) / 0.3);
+        const armU = -0.2 * reach - 1.9 * lift + 1.4 * go, armL = 0.9 * (1 - reach) + 0.2 * lift - 0.4 * go;
+        T.larmU = T.rarmU = armU; T.larmL = T.rarmL = armL;
+        T.pitch = -0.5 * lift + 0.9 * go; T.fwd = 8 * reach - 6 * go; T.head = -0.3 * lift + 0.5 * go;
+        T.bend = 10 * lift * (1 - go);
+      } else if (pose === 'thrown') {
+        // Held: hanging from the grip, legs kicking. Flung: a backward tumble in the air,
+        // arms and legs flung out, pitched over more and more until it lands.
+        if (f.heldBy != null) {
+          T.pitch = -0.5; T.larmU = T.rarmU = -1.6; T.larmL = T.rarmL = 0.4; T.head = -0.3;
+          T.legs = { l: [0.6 + 0.3 * Math.sin(env.clock * 14), -1.2, -0.4], r: [0.2 - 0.3 * Math.sin(env.clock * 14), -1.4, -0.4] };
+        } else {
+          f.tumble = (f.tumble || 0) + 6.5 * (1 / 60);
+          T.pitch = -0.5 - f.tumble; T.larmU = T.rarmU = -2.2; T.larmL = T.rarmL = 0.1; T.head = 0.2;
+          T.legs = { l: [0.9, -1.0, 0.2], r: [-0.4, -1.4, 0.3] };
+        }
       } else if (pose === 'block') {
         // Braced: both forearms up and across the face, the head tucked behind them, the
         // body leaning back off the blow and the knees giving a little, kneeling if
@@ -242,7 +261,7 @@
       else if (pose === 'idle' && !f.crouch && f.y === 0) T.bend = 2.5 * (0.5 + 0.5 * Math.sin(env.clock * 2 * Math.PI * 1.4 + f.seed));
       // How fast the pose follows: strikes land on time, a knockout goes slack slowly.
       const bracing = f.squat > 0 || f.landing > 0;
-      T.omega = MOVES[pose] ? 60 : bracing ? 55 : pose === 'hurt' ? 40 : pose === 'block' ? 50 : pose === 'ko' ? 10
+      T.omega = MOVES[pose] ? 60 : bracing ? 55 : pose === 'hurt' ? 40 : pose === 'block' ? 50 : pose === 'thrown' ? 45 : pose === 'ko' ? 10
         : f.y > 0 ? 28 : f.action === 'walk' ? 45 : f.crouch ? 26 : 15;   // rad/s
       return T;
     }
