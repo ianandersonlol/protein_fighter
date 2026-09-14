@@ -67,9 +67,14 @@ Playing the CPU, both sets drive P1, and J / K punch and kick as well.
   unfolding, a shove back and a short brace. A low attack gets under a standing guard, so
   block it crouching; an attack from the air comes over a crouching guard, so block it
   standing. The CPU braces now and then too
-- Heat shock: punch and kick together. A wave runs out along the membrane from your
+- Holding forward, punch is a straight with a lunge and kick a roundhouse, the rear leg
+  swung round high: slower to come out, harder when they land. The drop kick from a jump
+  is the heaviest blow of all, as in Street Fighter
+- A special, punch and kick together, once every four seconds, and it differs by
+  protein. The barrel's is the heat shock: a wave runs out along the membrane from its
   hands, flinging ligands, and unfolds what it reaches; it runs low, so it is blocked
-  crouching. Once every four seconds
+  crouching. The bundle's is the helix spin: it whirls twice round with both paddles out,
+  and can catch you twice
 - Hits in a row while the other is still reeling count up as a combo, each with its
   damage; the CPU on HARD blocks most of what it sees coming, hits back while you are
   recovering and kicks you out of the air, so a strike thrown over and over is a bad

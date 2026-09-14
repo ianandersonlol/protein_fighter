@@ -20,7 +20,9 @@
   const ease = n => { n = clamp01(n); return n * n * (3 - 2 * n); };
   const lerp = (a, b, t) => a + (b - a) * t;
   const wrap = u => ((u % 1) + 1) % 1;
-  const arm = (side, lift) => mul(Y(side * Math.PI / 2), X(lift));
+  // An arm: turned to point forward, then lifted (negative up). `out` brings it back toward
+  // the bind pose, straight out to the side.
+  const arm = (side, lift, out = 0) => mul(Y(side * Math.PI / 2 * (1 - out)), X(lift));
   const SIDES = ['l', 'r'];
 
   function create(rig, { MOVES, JUMP_V, JUMP_VX, SQUAT, LANDING }) {
@@ -166,9 +168,10 @@
         T.legs = { l: [l[0], l[1], l[1]], r: [r[0], r[1], r[1]] };
       };
 
-      if (pose === 'punch' || pose === 'lowpunch' || pose === 'airpunch') {
+      if (pose === 'punch' || pose === 'lowpunch' || pose === 'airpunch' || pose === 'straight') {
         T.rarmU = -(1 - s); T.rarmL = 0.95 * (1 - s);
         T.head += s * 0.15;   // eyes on the target
+        if (pose === 'straight') { T.pitch = s * 0.35; T.fwd = s * 14; T.larmU = -0.65 + s * 0.3; }   // the whole body behind it
         if (pose === 'punch') { T.pitch = s * 0.2; T.fwd = s * 5; }
         if (pose === 'lowpunch') T.low = 1;
         if (pose === 'airpunch') airLegs();
@@ -188,6 +191,23 @@
         T.larmU = -0.65 - kr * s * 0.55; T.larmL = 1.15 - kr * s * 0.75;
         T.rarmU = -1 - kr * s * 0.9; T.rarmL = 0.95 - kr * s * 1.7;
         T.head = -kr * s * 0.25;   // the head stays up as the body leans back
+      } else if (pose === 'roundhouse') {
+        // The rear leg swung round and up, high, the body turning into it and leaning back.
+        const legR = 0.5 + 0.5 * kr, chamber = ease(f.t / 0.08) * (1 - s);
+        const [bt, bs] = restIK('r', T.low * (1 - clamp01(chamber + s)));
+        T.legs = { r: [bt + legR * (chamber * 1.65 + s * 2.1), bs + legR * (-chamber * 1.1 + s * 1.9), legR * s * 1.0] };
+        T.pitch = kr * s * 0.6; T.fwd = s * 4;
+        T.larmU = -0.65 - kr * s * 0.7; T.larmL = 1.15 - kr * s * 0.9;
+        T.rarmU = -1 - kr * s * 1.0; T.rarmL = 0.95 - kr * s * 1.8;
+        T.head = -kr * s * 0.3;
+      } else if (pose === 'spin') {
+        // The helix spin: both paddles straight out, and the whole body whirling twice round
+        // on the spot, leaning into it, the head tucked.
+        const m = MOVES.spin, u = clamp01((f.t - m.active) / m.window), wind = ease(f.t / m.active);
+        T.armOut = wind * (1 - ease((f.t - m.active - m.window) / 0.15));
+        T.larmU = T.rarmU = -0.1; T.larmL = T.rarmL = 0;
+        T.spin = 2 * 2 * Math.PI * u;
+        T.pitch = 0.15 * wind; T.head = 0.35 * wind; T.bend = 6 * wind;
       } else if (pose === 'lowkick') {
         // From the deep crouch, the back leg sweeps out along the floor.
         T.low = 1;
@@ -275,7 +295,7 @@
       else if (pose === 'idle' && !f.crouch && f.y === 0) T.bend = 2.5 * (0.5 + 0.5 * Math.sin(env.clock * 2 * Math.PI * 1.4 + f.seed));
       // How fast the pose follows: strikes land on time, a knockout goes slack slowly.
       const bracing = f.squat > 0 || f.landing > 0;
-      T.omega = MOVES[pose] ? 60 : bracing ? 55 : pose === 'hurt' ? 40 : pose === 'block' ? 50 : pose === 'thrown' ? 45 : pose === 'ko' ? 10
+      T.omega = MOVES[pose] ? (pose === 'spin' ? 80 : 60) : bracing ? 55 : pose === 'hurt' ? 40 : pose === 'block' ? 50 : pose === 'thrown' ? 45 : pose === 'ko' ? 10
         : f.y > 0 ? 28 : f.action === 'walk' ? 45 : f.crouch ? 26 : 15;   // rad/s
       return T;
     }
@@ -316,6 +336,8 @@
       const lu = spring(M, 'larmU', T.larmU, w, dt), ll = spring(M, 'larmL', T.larmL, w, dt);
       const ru = spring(M, 'rarmU', T.rarmU, w, dt), rl = spring(M, 'rarmL', T.rarmL, w, dt);
       const hd = spring(M, 'head', T.head, Math.min(w, 30), dt);
+      const out = spring(M, 'armOut', T.armOut || 0, 40, dt);   // arms straight out to the sides, for the spin
+      const spinAngle = T.spin || 0;   // the spin's turn is applied directly, not sprung: it must come round exactly
       // A posed leg (kicking, or in the air) blends in over about a tenth of a second.
       const posed = {};
       for (const side of SIDES) {
@@ -441,11 +463,11 @@
       // 6. The rig, turned to face ±x (a rotation, not a mirror, so chirality survives) and
       // set on the hips. Turning round is a swing through the front, not a flip: the yaw
       // springs from one facing to the other in about a sixth of a second.
-      const yaw = spring(M, 'yaw', fc * Math.PI / 2, 36, dt), cy = Math.cos(yaw), sy = Math.sin(yaw);
+      const yaw = spring(M, 'yaw', fc * Math.PI / 2, 36, dt) + fc * spinAngle, cy = Math.cos(yaw), sy = Math.sin(yaw);
       const p = rig.pose({
         root_R: X(pitch),
-        larm_upper: arm(-1, lu + S.l[0] * k), larm_lower: arm(-1, ll + S.l[0] * 1.6 * k),
-        rarm_upper: arm(1, ru + S.r[0] * k), rarm_lower: arm(1, rl + S.r[0] * 1.6 * k),
+        larm_upper: arm(-1, lu + S.l[0] * k, out), larm_lower: arm(-1, ll + S.l[0] * 1.6 * k, out),
+        rarm_upper: arm(1, ru + S.r[0] * k, out), rarm_lower: arm(1, rl + S.r[0] * 1.6 * k, out),
         lleg_upper: X(L.l[0]), lleg_lower: X(L.l[1] + flap), lleg_foot: X(L.l[2]),
         rleg_upper: X(L.r[0]), rleg_lower: X(L.r[1] + flap * 0.8), rleg_foot: X(L.r[2]),
         head: X(pitch - hd - S.head[0]),   // the rig's positive pitch tilts back; head angles here are nods forward

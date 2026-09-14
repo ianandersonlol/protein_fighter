@@ -25,13 +25,20 @@
     lowpunch: { duration: 0.22, active: 0.06, window: 0.07, damage: 5,  stun: 0.14, push: 90,  fist: 'rarm',      text: 'JAB' },
     lowkick:  { duration: 0.42, active: 0.14, window: 0.10, damage: 7,  stun: 0.22, push: 130, fist: 'rleg_foot', text: 'LOW KICK', low: true },
     airpunch: { duration: 0.30, active: 0.06, window: 0.14, damage: 8,  stun: 0.20, push: 140, fist: 'rarm',      text: 'HIT', air: true, overhead: true },
-    airkick:  { duration: 0.40, active: 0.08, window: 0.22, damage: 10, stun: 0.26, push: 180, fist: 'rleg_foot', text: 'DROP KICK', air: true, overhead: true },
+    airkick:  { duration: 0.40, active: 0.08, window: 0.22, damage: 14, stun: 0.32, push: 260, fist: 'rleg_foot', text: 'DROP KICK', air: true, overhead: true },   // the heavy one, as in Street Fighter
+    // Holding forward: a straight with a lunge, and a roundhouse, the rear leg swung round
+    // high. Slower to come out, harder when they land.
+    straight:   { duration: 0.32, active: 0.11, window: 0.08, damage: 10, stun: 0.22, push: 200, fist: 'rarm',      text: 'STRAIGHT' },
+    roundhouse: { duration: 0.52, active: 0.19, window: 0.10, damage: 14, stun: 0.3,  push: 320, fist: 'rleg_foot', text: 'ROUNDHOUSE' },
     // Forward + punch up close: a grab, unblockable, that lifts the other and flings it.
     throw:    { duration: 0.95, active: 0.14, window: 0.04, damage: 12, stun: 0.5,  push: 380, fist: 'rarm',      text: 'THROW', throw: true, hold: 0.38 },
     // Punch and kick together: a heat shock, a wave along the membrane from the hands
     // that unfolds what it reaches. It runs low, so it is blocked crouching. Once in a while.
     special:  { duration: 0.75, active: 0.18, window: 0.32, damage: 9,  stun: 0.4,  push: 220, fist: 'wave',      text: 'HEAT SHOCK', low: true, wave: true, reach: 300, again: 4 },
+    // The bundle's own: a whirl with both paddles out, that can catch the other twice.
+    spin:     { duration: 0.8,  active: 0.12, window: 0.5,  damage: 6,  stun: 0.3,  push: 170, fist: 'arms',      text: 'HELIX SPIN', wave: true, spin: true, multi: 2, again: 4 },
   };
+  const SPECIAL = { barrel: 'special', helix: 'spin' };   // each protein's special, by form
   const GRAB = 34;            // Å between torsos, as drawn, within which a throw takes hold
   const THROWS = false;       // the throw is switched off for now: it needs more work before it is worth having
   const REACH = 13;           // Å from striking residues to any defender residue
@@ -62,11 +69,11 @@
     // residue, and only the shin is still against the body: counting the foot alone made
     // a kick at contact whiff. The outer third of the arm, likewise, for a punch: the
     // last dozen residues of a helix arm, the outer stretch of both strands of a hairpin.
-    const reach = rig.armParam('rarm');
-    const fist = D.rarm.filter((_, k) => reach[k] > 0.64);
+    const reach = rig.armParam('rarm'), reachL = rig.armParam('larm');
+    const fist = D.rarm.filter((_, k) => reach[k] > 0.64), fistL = D.larm.filter((_, k) => reachL[k] > 0.64);
     const torso = D.torso;
     return {
-      name, rig, n, motion, legs, legIdx, fist,
+      name, rig, n, motion, legs, legIdx, fist, fistL,
       armIdx: [...D.larm, ...D.rarm], kick: [...D.rleg_shin, ...D.rleg_foot], frontKick: [...D.lleg_shin, ...D.lleg_foot], torso,
       mid: torso[torso.length >> 1],   // a residue in the middle of the body
       // Deterministic per-residue direction, so jitter is stable frame to frame.
@@ -129,7 +136,8 @@
     const m = MOVES[move];
     if (!m || f.stun > 0 || f.blockStun > 0 || (MOVES[f.action] && !(m.wave && f.t < 0.09)) || f.action === 'thrown' || (f.cooldown > 0 && !m.wave)) return false;
     if (!!m.air !== f.y > 0) return false;
-    if (m.wave) { if (f.y > 0 || clock - f.specialAt < m.again) return false; f.specialAt = clock; sfx.shock(); }
+    if (m.wave) { if (f.y > 0 || clock - f.specialAt < m.again) return false; f.specialAt = clock; if (m.spin) sfx.spin(); else sfx.shock(); }
+    f.hits = 0; f.hitAt = -1;
     Object.assign(f, { action: move, t: 0, hit: false, cooldown: m.duration });
     f.fatigue = Math.min(1, f.fatigue + 0.12);
     return true;
@@ -268,7 +276,8 @@
 
   // The striking end of the limb (see makeForm), where it is now.
   function strikePoints(f, move) {
-    const c = f.coords, idx = MOVES[move].fist === 'rarm' ? f.form.fist : MOVES[move].fist === 'wave' ? [] : move === 'kick' ? f.form.frontKick : f.form.kick;
+    const m = MOVES[move], c = f.coords;
+    const idx = m.fist === 'rarm' ? f.form.fist : m.fist === 'arms' ? [...f.form.fist, ...f.form.fistL] : m.fist === 'wave' ? [] : move === 'kick' ? f.form.frontKick : f.form.kick;
     return idx.map(i => c[i]);
   }
 
@@ -671,7 +680,8 @@
       else if (free && gap < 75 && Math.random() < L.attack) {
         const r = Math.random();
         if (THROWS && gap < 48 && p.y === 0 && r < 0.3) attack(c, 'throw');
-        else if (gap > 70 && gap < 200 && p.y === 0 && r < L.special) attack(c, 'special');
+        else if (gap > (c.form.name === 'barrel' ? 70 : 30) && gap < (c.form.name === 'barrel' ? 200 : 70) && p.y === 0 && r < L.special) attack(c, SPECIAL[c.form.name]);
+        else if (gap < 60 && r < 0.25) attack(c, Math.random() < 0.5 ? 'roundhouse' : 'straight');
         else attack(c, r < 0.4 ? 'punch' : r < 0.7 ? 'kick' : r < 0.85 ? 'lowkick' : 'lowpunch');
       }
     }
@@ -782,6 +792,7 @@
     else cpu(c, p, dt);
     for (const f of fighters) if (f.action === 'thrown' && f.heldBy != null) holdThrown(f);
     for (const f of fighters) if (f.action === 'special') { const w = waveAt(f); if (w != null && (net.seq & 1) === 0) window.Cell?.wave(w, f.facing); }
+    for (const f of fighters) if (f.action === 'spin' && f.t > MOVES.spin.active && f.t < MOVES.spin.active + MOVES.spin.window && net.seq % 3 === 0) window.Cell?.spark(f.coords[f.form.mid], f.facing * (net.seq % 6 < 3 ? 1 : -1), 3, 'block');
 
     keepTogether();
 
@@ -798,8 +809,9 @@
       const m = MOVES[a.action], b = fighters[1 - i];
       // Live from most of the way out, so a strike thrown point-blank lands where it meets
       // the body instead of passing through it before the active frame.
-      if (!m || a.hit || a.t < m.active * 0.6 || b.hp === 0) return;
-      if (m.wave) {   // the shock wave: reaching the other, low along the floor
+      if (!m || b.hp === 0 || a.t < m.active * 0.6) return;
+      if (a.hit && !(m.multi && a.hits < m.multi && a.t - a.hitAt > 0.2)) return;   // a spin may land again, a moment on
+      if (m.wave && !m.spin) {   // the shock wave: reaching the other, low along the floor
         const w = waveAt(a);
         if (w == null || Math.abs(w - barrelX(b)) > 24 || b.y > 30) return;
         const at = b.coords[b.form.mid].slice(); at[1] = Math.min(at[1], 30);
@@ -814,13 +826,15 @@
         else { a.hit = true; sfx.whiff(); }
         return;
       }
+      if (a.t > m.active + m.window) { if (!a.hit) sfx.whiff(); a.hit = true; return; }   // whiffed: the window closed
       const at = contact(a, b);
       if (!at) return;
       // A strike is only as strong as the part throwing it (unfolded arms punch weaker,
       // unfolded legs kick weaker) and weakens further as the whole protein comes apart.
       // Everything a blow does follows its strength: the damage, and also how far it
       // shoves, how deep it dents, how long it stuns and how hard it lands on screen.
-      const power = strikePower(a, a.action);
+      const power = strikePower(a, a.action) * (m.multi && a.hits ? 0.8 : 1);
+      a.hits = (a.hits || 0) + 1; a.hitAt = a.t;
       if (canBlock(b, 1 - i, m)) {
         blockHit(i, a.action, at, power);
         netEvent('block', i, a.action, at, power);
@@ -1273,6 +1287,7 @@
     },
     grab() { noise(0.12, 800, 3000, { gain: 0.2, filter: 'bandpass' }); tone(300, 90, 0.18, { type: 'triangle', gain: 0.15 }); },
     shock() { tone(80, 400, 0.5, { type: 'sawtooth', gain: 0.2 }); noise(0.6, 200, 2500, { gain: 0.25, filter: 'bandpass' }); tone(45, 30, 0.7, { gain: 0.4 }); },
+    spin() { for (let i = 0; i < 4; i++) noise(0.14, 400, 2200, { gain: 0.16, filter: 'bandpass', delay: i * 0.15 }); tone(180, 320, 0.6, { type: 'triangle', gain: 0.1 }); },
     denatured() {   // the announcer: three low, rough syllables, DE-NA-TURED, and a hit under the last
       for (const [f0, f1, dur, delay, g] of [[112, 84, 0.22, 0, 0.5], [100, 78, 0.22, 0.26, 0.5], [92, 46, 0.7, 0.52, 0.6]]) {
         tone(f0, f1, dur, { type: 'sawtooth', gain: g * 0.55, delay });
@@ -1318,9 +1333,10 @@
     const f = fighters[i], h = held[i];
     if (f.y === 0 && (h.has('up') || f.squat > 0)) { f.queued = { move: 'air' + kind, until: clock + BUFFER }; return; }
     // The other attack key within a twelfth of a second of the first: the heat shock.
-    if (f.y === 0 && MOVES[f.action] && !MOVES[f.action].wave && f.t < 0.09 && f.action.endsWith(kind === 'punch' ? 'kick' : 'punch')) return attack(f, 'special');
+    if (f.y === 0 && MOVES[f.action] && !MOVES[f.action].wave && f.t < 0.09 && (f.action.endsWith(kind === 'punch' ? 'kick' : 'punch') || f.action === (kind === 'punch' ? 'roundhouse' : 'straight'))) return attack(f, SPECIAL[f.form.name]);
     const o = fighters[1 - i], forward = f.facing > 0 ? 'right' : 'left';
     if (THROWS && kind === 'punch' && f.y === 0 && !h.has('down') && h.has(forward) && o.y === 0 && barrelGap(f, o) < GRAB) return attack(f, 'throw');
+    if (f.y === 0 && !h.has('down') && h.has(forward)) return attack(f, kind === 'punch' ? 'straight' : 'roundhouse');
     attack(f, f.y > 0 ? 'air' + kind : h.has('down') ? 'low' + kind : kind);
   }
   function jumpCancel(i) {
@@ -1492,7 +1508,7 @@
   // last packet (hits, callouts, the finisher, sounds). The unfolding travels only when
   // it changed. About 2 KB a packet.
   const SNAP = ['x', 'y', 'vx', 'vy', 'facing', 'hp', 'crouch', 'sinceHit', 'squat', 'jumpDir', 'upReleased', 'landing', 'landPower',
-    'fatigue', 'jit', 'settle', 'action', 't', 'hit', 'stun', 'cooldown', 'limp', 'seed', 'lastLow', 'blockStun', 'blockHold', 'heldBy', 'heldProg', 'tumble', 'combo', 'comboAir', 'specialAt'];
+    'fatigue', 'jit', 'settle', 'action', 't', 'hit', 'hits', 'hitAt', 'stun', 'cooldown', 'limp', 'seed', 'lastLow', 'blockStun', 'blockHold', 'heldBy', 'heldProg', 'tumble', 'combo', 'comboAir', 'specialAt'];
   // What a guest keeps its own for the fighter it drives: its keys have already moved
   // it, and the host's word on where it was a moment ago would only drag it back.
   const OWN = new Set(['y', 'vy', 'crouch', 'squat', 'jumpDir', 'upReleased', 'landing', 'landPower', 'action', 't']);
