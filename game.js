@@ -334,13 +334,16 @@
   // The struck spot gives way: residues around it are pushed in along the blow, then
   // spring back through a couple of shrinking bounces, so it is plain where it landed.
   const DENT_RADIUS = 22, DENT_DECAY = 6, DENT_BOUNCE = 26, DENT_LIFE = 0.8;
-  function dent(b, at, dir, power) {
+  function dentWeights(b, at) {
     const N = b.form.n, w = new Float32Array(N);
     for (let i = 0; i < N; i++) {
       const q = b.coords[i], r = Math.hypot(q[0] - at[0], q[1] - at[1], q[2] - at[2]);
       w[i] = Math.exp(-(r * r) / (2 * DENT_RADIUS * DENT_RADIUS));
     }
-    b.dents.push({ w, dir, amp: 4 + power * 0.45, t: 0 });
+    return w;
+  }
+  function dent(b, at, dir, power) {
+    b.dents.push({ w: dentWeights(b, at), at, dir, amp: 4 + power * 0.45, t: 0 });
     if (b.dents.length > 4) b.dents.shift();
   }
 
@@ -495,8 +498,7 @@
   let mode = 1;                           // 1: you vs the CPU · 2: two players, one keyboard · 3: a remote challenger (net.js)
   // Remote play. Hosting: `link` streams state to the guest, who drives P2 through held[1].
   // A guest page (?join=…) runs no game of its own: it draws the host's state and sends keys.
-  const net = { link: null, guest: !!window.Net?.joinId(), events: [], seq: 0, fresh: false, paeReset: true,
-    lastUnfold: null, prev: null, next: null, at: 0, gap: 1 / 15, pkts: 0, bytes: 0, rate: '', tick: 0 };
+  const net = { link: null, guest: !!window.Net?.joinId(), events: [], seq: 0, lastUnfold: null, pkts: 0, bytes: 0, tick: 0 };
   const netEvent = (...e) => { if (net.link) net.events.push(e); };
   let fighters, wins = [0, 0], round = 1, time = 60, phase = 'ready', clock = 0, koTimer = 0, ai = 0, hitstop = 0;
   const names = () => ['P1', 'P2'];   // the CPU is P2 too
@@ -704,7 +706,8 @@
     for (const [f, o] of [[p, c], [c, p]]) {
       if (f.y === 0 && !MOVES[f.action] && (barrelX(o) - barrelX(f)) * f.facing < -3) f.facing = -f.facing;
     }
-    fighters.forEach((a, i) => {
+    // Hits are the host's call: a guest replays them from its events.
+    if (!net.guest) fighters.forEach((a, i) => {
       const m = MOVES[a.action], b = fighters[1 - i];
       // Live from most of the way out, so a strike thrown point-blank lands where it meets
       // the body instead of passing through it before the active frame.
@@ -712,26 +715,13 @@
       if (a.t > m.active + m.window) { a.hit = true; sfx.whiff(); return; }   // whiffed
       const at = contact(a, b);
       if (!at) return;
-      a.hit = true;
       // A strike is only as strong as the part throwing it (unfolded arms punch weaker,
       // unfolded legs kick weaker) and weakens further as the whole protein comes apart.
       // Everything a blow does follows its strength: the damage, and also how far it
       // shoves, how deep it dents, how long it stuns and how hard it lands on screen.
       const power = strikePower(a, a.action);
-      b.vx = a.facing * m.push * power;
-      wound(b, at, m.damage * DAMAGE_SCALE * power, m.low, a.facing);
-      dent(b, at, a.facing, m.damage * power);
-      b.lastHit = at;
-      // The blow throws the parts about: struck in the head, the head whips on its neck
-      // away from the blow (a hit from behind snaps it forward); struck anywhere, the
-      // arms fly and the legs buckle, a low blow most of all.
-      const high = at[1] > b.motion.hip[1] + b.form.motion.NECK_HEIGHT - 8;
-      const away = a.facing * b.facing < 0 ? -1 : 1;
-      b.form.motion.jolt(b, { head: away * (high ? 24 : 8) * power, arms: away * 5 * power, legs: (m.low ? 6 : 2.5) * power });
-      b.stun = m.stun * (0.4 + 0.6 * power); b.action = 'hurt'; b.t = 0; b.squat = 0;
-      if (b.y > 0) b.vy = Math.max(b.vy, 260);   // hit in the air: popped up, then falls
-      hitstop = 0.05 + m.damage * 0.003 * power;
-      if (b.hp === 0) { b.action = 'ko'; b.t = 0; }
+      landHit(i, a.action, at, power);
+      netEvent('hit', i, a.action, at, power);
       flash(at, m.text);
       sfx.hit(m.damage * power / 13);
     });
@@ -742,6 +732,26 @@
       if (!fighters.some(f => f.hp === 0)) announce('TIME');
       sfx.ko();
     }
+  }
+
+  // A blow from fighter i's `move` landing at `at` with this much of its strength.
+  function landHit(i, move, at, power) {
+    const a = fighters[i], b = fighters[1 - i], m = MOVES[move];
+    a.hit = true;
+    b.vx = a.facing * m.push * power;
+    wound(b, at, m.damage * DAMAGE_SCALE * power, m.low, a.facing);
+    dent(b, at, a.facing, m.damage * power);
+    b.lastHit = at;
+    // The blow throws the parts about: struck in the head, the head whips on its neck
+    // away from the blow (a hit from behind snaps it forward); struck anywhere, the
+    // arms fly and the legs buckle, a low blow most of all.
+    const high = at[1] > b.motion.hip[1] + b.form.motion.NECK_HEIGHT - 8;
+    const away = a.facing * b.facing < 0 ? -1 : 1;
+    b.form.motion.jolt(b, { head: away * (high ? 24 : 8) * power, arms: away * 5 * power, legs: (m.low ? 6 : 2.5) * power });
+    b.stun = m.stun * (0.4 + 0.6 * power); b.action = 'hurt'; b.t = 0; b.squat = 0;
+    if (b.y > 0) b.vy = Math.max(b.vy, 260);   // hit in the air: popped up, then falls
+    hitstop = 0.05 + m.damage * 0.003 * power;
+    if (b.hp === 0) { b.action = 'ko'; b.t = 0; }
   }
 
   // Denaturing, in two acts. First the collapse: the knees give and the body drops into a
@@ -758,6 +768,7 @@
       const q = f.coords[i], d = Math.hypot(q[0] - at[0], q[1] - at[1], q[2] - at[2]);
       if (d < bestD) { bestD = d; brk = i; }
     }
+    f.koBrk = brk;
     f.koWave = Float32Array.from({ length: N }, (_, i) => Math.abs(i - brk) / N);   // 0 at the break, further along the chain after
     f.koLoose = new Float32Array(N);
     f.koBurst = false;
@@ -794,6 +805,7 @@
       }
       f.coords = body(f, clock);
     }
+    if (net.guest) return;   // the word and the round's end come from the host
     // Once the loser has dropped into its heap, the word.
     if (phase === 'ko' && !finished && koTimer > COLLAPSE + 0.1 && fighters.some(f => f.hp === 0)) { finished = true; finisher('DENATURED'); }
     if (phase === 'ko' && koTimer > KO_HOLD) endRound();
@@ -1105,7 +1117,7 @@
   }
 
   function press(k) {
-    if (net.guest) return guestPress(k);
+    if (net.guest) return guestPress(k);   // acts here at once, and tells the host
     if (k === 'escape') {
       if (phase === 'playing') { phase = 'paused'; for (const h of held) h.clear(); overlay('PAUSED', '', 'RESUME'); duckMusic(0.08); }
       else if (phase === 'paused') start();
@@ -1129,9 +1141,10 @@
     light(k, false);
     const r = route(k);
     if (!r) return;
-    if (net.guest) { if (r[1] !== 'punch' && r[1] !== 'kick') net.send?.({ t: 'in', d: 0, a: r[1] }); return; }
-    held[r[0]].delete(r[1]);
-    if (r[1] === 'up' && fighters) fighters[r[0]].upReleased = true;   // a tap is a short hop
+    const i = net.guest ? 1 : r[0];
+    if (net.guest && r[1] !== 'punch' && r[1] !== 'kick') net.send?.({ t: 'in', d: 0, a: r[1] });
+    held[i].delete(r[1]);
+    if (r[1] === 'up' && fighters) fighters[i].upReleased = true;   // a tap is a short hop
   }
   const keyName = e => e.key.toLowerCase();
   addEventListener('keydown', e => {
@@ -1198,13 +1211,6 @@
   function frame(now) {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
-    if (net.guest) {
-      frameCamera(dt);
-      if (blendState()) { draw(); fighters.forEach((f, i) => { updatePAE(f); drawPAE(f, i); }); }
-      hud(); netStatus(now);
-      requestAnimationFrame(frame);
-      return;
-    }
     let moved = false;
     if (hitstop > 0) hitstop -= dt;
     else if (phase !== 'paused') {
@@ -1224,9 +1230,9 @@
     if (moved) {
       draw();
       fighters.forEach((f, i) => { updatePAE(f); drawPAE(f, i); });   // live PAE maps
-      if (net.link && ++net.seq % 4 === 0) sendState();   // 15 packets a second; the guest interpolates
+      if (net.link && ++net.seq % 4 === 0) sendState();   // 15 packets a second
     }
-    hud(); if (net.link) netStatus(now);
+    hud(); if (net.link || net.guest) netStatus(now);
     requestAnimationFrame(frame);
   }
 
@@ -1242,80 +1248,92 @@
     net.pkts = 0; net.bytes = 0;
     setText('netstat', line);
   }
-  // The state the guest needs to draw the fight: every residue's position (0.05 Å
-  // steps in 16 bits) and unfolding (a byte), the numbers on the HUD, what the overlay
-  // says, and what happened since the last packet (callouts, the finisher, sounds).
+  // What the guest runs the fight from. It has the same game and the same rigs, so it
+  // simulates every tick itself, its own keys acting at once; the host's packet, fifteen
+  // times a second, sets it straight: each fighter's state and the springs of its
+  // motion, the numbers on the HUD, what the overlay says, and what happened since the
+  // last packet (hits, callouts, the finisher, sounds). The unfolding travels only when
+  // it changed. About 2 KB a packet.
+  const SNAP = ['x', 'y', 'vx', 'vy', 'facing', 'hp', 'crouch', 'sinceHit', 'squat', 'jumpDir', 'upReleased', 'landing', 'landPower',
+    'fatigue', 'jit', 'settle', 'action', 't', 'hit', 'stun', 'cooldown', 'limp', 'seed'];
+  // What a guest keeps its own for the fighter it drives: its keys have already moved
+  // it, and the host's word on where it was a moment ago would only drag it back.
+  const OWN = new Set(['y', 'vy', 'crouch', 'squat', 'jumpDir', 'upReleased', 'landing', 'landPower', 'action', 't']);
+  const snap = f => {
+    const o = {};
+    for (const k of SNAP) o[k] = f[k];
+    o.q = f.queued; o.m = f.motion; o.d = f.dents.map(d => ({ at: d.at, dir: d.dir, amp: d.amp, t: d.t }));
+    o.lh = f.lastHit; o.kb = f.koBrk ?? null;
+    return o;
+  };
+  function unsnap(f, o, own) {
+    for (const k of SNAP) {
+      if (own && OWN.has(k)) continue;
+      if (own && k === 'x') { const d = o.x - f.x; f.x += Math.abs(d) > 25 ? d : d * 0.3; continue; }   // eased, unless far out
+      f[k] = o[k];
+    }
+    f.lastHit = o.lh;
+    if (own) return;
+    f.queued = o.q; f.motion = o.m;
+    f.dents = o.d.map(d => ({ ...d, w: dentWeights(f, d.at) }));
+  }
   function sendState() {
     const [a, b] = fighters, n = a.form.n + b.form.n;
-    // The unfolding changes only on a hit or as it refolds, so it goes only when it did.
+    // The unfolding changes only on a hit or as it refolds, so it goes only when it did
+    // (and now and then anyway, so a guest that missed one catches up).
     const unfold = new Uint8Array(n);
     let u = 0;
     for (const f of fighters) for (let i = 0; i < f.form.n; i++) unfold[u++] = Math.round(f.unfold[i] * 255);
-    const changed = !net.lastUnfold || unfold.some((v, i) => v !== net.lastUnfold[i]);
+    const changed = !net.lastUnfold || net.tx % 30 === 0 || unfold.some((v, i) => v !== net.lastUnfold[i]);
     if (changed) net.lastUnfold = unfold;
-    const bytes = new Uint8Array(n * (changed ? 7 : 6)), xyz = new Int16Array(bytes.buffer, 0, n * 3);
-    let k = 0;
-    for (const f of fighters) for (let i = 0; i < f.form.n; i++) {
-      const q = f.coords[i];
-      xyz[k++] = Math.round(q[0] * 20); xyz[k++] = Math.round(q[1] * 20); xyz[k++] = Math.round(q[2] * 20);
-    }
-    if (changed) bytes.set(unfold, n * 6);
     const h = {
-      ph: phase, t: time, r: round, w: wins, hp: [a.hp, b.hp], x: [a.x, b.x], n: [a.form.n, b.form.n],
+      ph: phase, t: time, r: round, w: wins, k: koTimer, hs: hitstop, held: [[...held[0]], [...held[1]]],
+      f: [snap(a), snap(b)], n: [a.form.n, b.form.n],
       ov: { on: !$('overlay').hidden, ti: $('title').hidden ? '' : $('title').textContent, ms: $('msg').hidden ? '' : $('msg').textContent, end: $('overlay').classList.contains('ended') },
       ev: net.events,
     };
     net.events = [];
-    net.tx = (net.tx || 0) + 1; net.bytes += bytes.length;
-    net.link.send({ h, c: bytes });
+    net.tx = (net.tx || 0) + 1; net.bytes += JSON.stringify(h).length + (changed ? n : 0);
+    net.link.send({ h, u: changed ? unfold : null });
   }
   function applyState(m) {
-    const { h, c } = m || {};
+    const { h, u } = m || {};
     net.rx = (net.rx || 0) + 1;
-    if (!h || !c) return;
-    const bytes = c instanceof Uint8Array ? c : new Uint8Array(c), n = h.n[0] + h.n[1];
-    if ((bytes.length !== n * 7 && bytes.length !== n * 6) || fighters[0].form.n !== h.n[0] || fighters[1].form.n !== h.n[1]) return;
-    net.bytes += bytes.length; net.pkts++;
-    // Two snapshots are kept and the frame drawn is slid from the older to the newer, so
-    // the guest moves smoothly at 60 fps on 15 packets a second, one packet behind.
-    const now = performance.now() / 1000;
-    if (net.next) { net.gap = Math.min(0.25, Math.max(0.03, now - net.at)); net.prev = net.next; }
-    net.next = new Int16Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + n * 6)); net.at = now;
-    if (!net.prev) net.prev = net.next;
-    if (bytes.length === n * 7) { let u = n * 6; for (const f of fighters) for (let i = 0; i < f.form.n; i++) f.unfold[i] = bytes[u++] / 255; }
-    fighters.forEach((f, j) => { f.hp = h.hp[j]; f.x = h.x[j]; });
-    phase = h.ph; time = h.t; round = h.r; wins = h.w;
+    if (!h || !h.f) return;
+    net.pkts++; net.bytes += JSON.stringify(h).length + (u ? u.byteLength || u.length || 0 : 0);
+    // What happened first: a new round makes new fighters, a hit is replayed on them.
     for (const e of h.ev || []) {
-      if (e[0] === 'flash') flash([e[1], 0, 0], e[2]);
+      if (e[0] === 'reset') resetRound();
+      else if (e[0] === 'hit' && fighters[e[1]].motion) landHit(e[1], e[2], e[3], e[4]);
+      else if (e[0] === 'flash') flash([e[1], 0, 0], e[2]);
       else if (e[0] === 'finish') finisher(e[1], true);
-      else if (e[0] === 'reset') { clearFinisher(); net.paeReset = true; }
       else if (e[0] === 'sfx' && sfx[e[1]]) sfx[e[1]](...e.slice(2));
     }
-    if (net.paeReset) { net.paeReset = false; for (const f of fighters) { f.paeLocal = localPositions(f.coords); f.pae.fill(0); } }
+    if (fighters[0].form.n !== h.n[0] || fighters[1].form.n !== h.n[1]) return;
+    const was = phase;
+    phase = h.ph; time = h.t; round = h.r; wins = h.w; koTimer = h.k; hitstop = h.hs;
+    held[0] = new Set(h.held[0]);   // the host's keys drive P1 here too, between packets
+    fighters.forEach((f, j) => unsnap(f, h.f[j], j === 1));
+    if (u) { const bytes = u instanceof Uint8Array ? u : new Uint8Array(u); let k = 0; for (const f of fighters) for (let i = 0; i < f.form.n; i++) f.unfold[i] = bytes[k++] / 255; }
+    if (phase === 'ko' && was !== 'ko') for (const f of fighters) if (f.hp === 0 && !f.koWave) denature(f);
+    if (phase !== 'ko' && phase !== 'over') for (const f of fighters) { f.koWave = f.koLoose = null; }
     $('title').textContent = h.ov.ti; $('title').hidden = !h.ov.ti;
     $('msg').textContent = h.ov.ms; $('msg').hidden = !h.ov.ms;
     $('overlay').hidden = !h.ov.on; $('overlay').classList.toggle('ended', h.ov.end);
-    net.fresh = true;
   }
-  // The guest's coordinates this frame: between the two latest snapshots.
-  function blendState() {
-    if (!net.next) return false;
-    const t = Math.min(1, (performance.now() / 1000 - net.at) / net.gap), a = net.prev, b = net.next;
-    let k = 0;
-    for (const f of fighters) for (let i = 0; i < f.form.n; i++) {
-      const q = f.coords[i];
-      q[0] = (a[k] + (b[k] - a[k]) * t) / 20; k++;
-      q[1] = (a[k] + (b[k] - a[k]) * t) / 20; k++;
-      q[2] = (a[k] + (b[k] - a[k]) * t) / 20; k++;
-    }
-    return true;
-  }
-  // A guest's keys go to the host; strikes as presses, directions as held or released.
+  // A guest's keys act here at once and go to the host: strikes as presses, directions
+  // as held or released. The guest is always P2.
   function guestPress(k) {
     startMusic();
     if (k === 'escape') return net.send?.({ t: 'in', a: 'escape' });
     const r = route(k);
-    if (r) net.send?.({ t: 'in', d: 1, a: r[1] });
+    if (!r) return;
+    const act = r[1];
+    net.send?.({ t: 'in', d: 1, a: act });
+    if (phase !== 'playing') return;
+    if (act === 'punch' || act === 'kick') return strike(1, act);
+    if (act === 'up') jumpCancel(1);
+    held[1].add(act);
   }
   function hostInput(m) {
     if (!m || m.t !== 'in') return;
@@ -1354,6 +1372,7 @@
     $('modes').hidden = true; $('go').hidden = true;
     overlay('CONNECTING', 'to the host…', null); $('modes').hidden = true;
     document.querySelector('.pad.left .who').textContent = 'YOU';
+    mode = 3;   // P2 by the guest's own keys, P1 by the host's, as relayed
     const link = window.Net.join(id, {
       onOpen: () => { $('title').textContent = 'CONNECTED'; $('msg').textContent = 'waiting for the host'; },
       onState: applyState,

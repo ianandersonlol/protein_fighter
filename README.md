@@ -39,16 +39,17 @@ then http://localhost:8000. WebGL2 is required.
 Pick 1 player (against the CPU), 2 players on one keyboard, or REMOTE: a second device
 joins over the network. REMOTE shows a QR code; scan it with a phone (or open the link
 it encodes) and the fight starts, that device playing P2 with its on-screen keys or
-keyboard. The host runs the game and streams every residue's position to the guest
-thirty times a second over a WebRTC data channel; the guest sends only its key presses.
-The connection is set up through PeerJS's public signaling server, so both devices need
-internet even on the same Wi-Fi, and the page loads PeerJS and a QR library from unpkg.
-The two browsers then talk directly where they can, or through PeerJS's relays where
-they can't. The host streams fifteen packets a second (about 5 KB each) and the guest
-interpolates between them; a status line under the switches shows the packet rate, the
-bandwidth and the link's state on both sides. If you have a TURN server of your own,
-open the game as `?turn=turn:host:port&tu=user&tp=password` before pressing REMOTE and
-the join link carries it to the guest. A connection that fails says what the browser saw.
+keyboard. Both devices run the game: the guest's keys act on its own screen at once and
+go to the host, and the host, whose judgement of every hit is final, sends a small
+packet fifteen times a second (each fighter's state and the springs of its motion,
+the HUD, the overlay, and any hits, callouts and sounds since the last one) that keeps
+the guest in step. The connection is a WebRTC data channel set up through PeerJS's
+public signaling server, direct where it can be and through PeerJS's relays where it
+can't, so both devices need internet even on one Wi-Fi; the page loads PeerJS and a QR
+library from unpkg. A status line under the switches shows the packet rate and the
+link's state on both sides. A TURN server of your own can be given as
+`?turn=turn:host:port&tu=user&tp=password` before pressing REMOTE; the join link carries
+it to the guest. A connection that fails says what the browser saw.
 
 | | P1 (left hand) | P2 (right hand) |
 | --- | --- | --- |
