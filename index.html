@@ -108,19 +108,18 @@
   .players button { background: transparent; color: var(--ink); border: 0; padding: 5px 12px; font-size: 11px; letter-spacing: 1px; }
   .players button.on { background: var(--ink); color: var(--bg); }
   /* The CPU's level, shown for a one-player game. */
-  .levels { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; }
+  .levels { display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; }
   .levels[hidden] { display: none; }
   .levels small { font-size: 10px; letter-spacing: 1px; opacity: 0.7; }
-  .levels button { background: transparent; color: var(--ink); border: 2px solid var(--ink); padding: 3px 9px; font-size: 10px; letter-spacing: 1px; }
-  .levels button + button { border-left: 0; }
-  .levels button.on { background: var(--ink); color: var(--bg); }
+  /* The same pill as the mode switch, a size down: labelled, the chosen one filled in. */
+  .pill { display: inline-flex; border: 2px solid var(--ink); border-radius: 999px; overflow: hidden; }
+  .pill button { background: transparent; color: var(--ink); border: 0; padding: 4px 11px; font-size: 10px; letter-spacing: 1px; }
+  .pill button.on { background: var(--ink); color: var(--bg); }
+  .pill button:not(.on):hover { background: var(--faint); }
   /* Which protein each player fights as. */
   .picks { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; margin-top: 10px; }
-  .pick { display: inline-flex; align-items: center; gap: 6px; }
+  .pick { display: inline-flex; align-items: center; gap: 8px; }
   .pick small { font-size: 10px; letter-spacing: 1px; opacity: 0.7; }
-  .pick button { background: transparent; color: var(--ink); border: 2px solid var(--ink); padding: 3px 9px; font-size: 10px; letter-spacing: 1px; }
-  .pick button + button { border-left: 0; }
-  .pick button.on { background: var(--ink); color: var(--bg); }
   button { font: inherit; cursor: pointer; border: 2px solid var(--ink); background: var(--ink); color: var(--bg); padding: 10px 22px; letter-spacing: 1px; }
   button:disabled { opacity: 0.5; cursor: wait; }
   kbd { border: 1px solid var(--ink); padding: 0 4px; }
@@ -220,8 +219,8 @@
     <h1 id="title" hidden></h1>
     <p id="msg" hidden></p>
     <p id="modes"><button id="one" disabled>START</button><br><span class="players" role="group" aria-label="Players"><button data-players="1" tabindex="-1" class="on">1 PLAYER</button><button data-players="2" tabindex="-1">2 PLAYERS</button><button data-players="3" tabindex="-1">REMOTE</button></span>
-      <span class="levels" role="group" aria-label="CPU difficulty"><small>CPU</small><button data-level="easy" tabindex="-1">EASY</button><button data-level="normal" tabindex="-1" class="on">NORMAL</button><button data-level="hard" tabindex="-1">HARD</button></span>
-      <span class="picks"><span class="pick" data-player="0" role="group" aria-label="P1 protein"><small>P1</small><button data-pick="0:barrel" tabindex="-1" class="on">BARREL</button><button data-pick="0:helix" tabindex="-1">BUNDLE</button></span><span class="pick" data-player="1" role="group" aria-label="P2 protein"><small>P2</small><button data-pick="1:barrel" tabindex="-1">BARREL</button><button data-pick="1:helix" tabindex="-1" class="on">BUNDLE</button></span></span></p>
+      <span class="levels" role="group" aria-label="CPU difficulty"><small>CPU</small><span class="pill"><button data-level="easy" tabindex="-1">EASY</button><button data-level="normal" tabindex="-1" class="on">NORMAL</button><button data-level="hard" tabindex="-1">HARD</button></span></span>
+      <span class="picks"><span class="pick" data-player="0" role="group" aria-label="P1 protein"><small>P1</small><span class="pill"><button data-pick="0:barrel" tabindex="-1" class="on">BARREL</button><button data-pick="0:helix" tabindex="-1">BUNDLE</button></span></span><span class="pick" data-player="1" role="group" aria-label="P2 protein"><small>P2</small><span class="pill"><button data-pick="1:barrel" tabindex="-1">BARREL</button><button data-pick="1:helix" tabindex="-1" class="on">BUNDLE</button></span></span></span></p>
     <div id="qr" hidden></div>
     <div id="joinbox" hidden><input id="joinlink" readonly spellcheck="false" aria-label="Join link"><button id="copylink" type="button">COPY</button></div>
     <p><button id="go" hidden>FIGHT</button></p>
