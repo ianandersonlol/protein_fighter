@@ -1458,7 +1458,7 @@
   });
 
   // ----------------------------------------------------------------------- loop
-  let last = performance.now(), acc = 0;
+  let last = performance.now(), acc = 0, drawn = 0;   // frames drawn
   const DT = 1 / 60;
   function frame(now) {
     const dt = Math.min(0.1, (now - last) / 1000);
@@ -1484,7 +1484,10 @@
     }
     if (moved) {
       draw();
-      fighters.forEach((f, i) => { updatePAE(f); drawPAE(f, i); });   // live PAE maps
+      // Live PAE maps: every residue against every residue, so each map is refreshed
+      // on alternate frames (30 Hz), and not through the hit freeze, where nothing moved.
+      if (hitstop <= 0) { const f = fighters[drawn & 1]; updatePAE(f); drawPAE(f, drawn & 1); }
+      drawn++;
       if (net.link && ++net.seq % 4 === 0) sendState();   // 15 packets a second
     }
     hud(); if (net.link || net.guest) netStatus(now);
