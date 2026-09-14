@@ -179,9 +179,11 @@
         // the leg as it stands and is shaped on a standing leg as it comes out: added to a
         // slumped leg's forward thigh, the same swing flung the foot higher the more
         // battered the protein was (57 Å at 90% unfolded, against 52 at 50%).
+        // The front leg kicks (a lead-leg front kick: chambered, then driven out), the
+        // back leg planted.
         const legR = 0.5 + 0.5 * kr, chamber = ease(f.t / 0.06) * (1 - s);
-        const [bt, bs] = restIK('r', T.low * (1 - clamp01(chamber + s)));
-        T.legs = { r: [bt + legR * (chamber * 1.65 + s * 1.9), bs + legR * (-chamber * 1.1 + s * 1.72), legR * s * 0.9] };
+        const [bt, bs] = restIK('l', T.low * (1 - clamp01(chamber + s)));
+        T.legs = { l: [bt + legR * (chamber * 1.5 + s * 1.75), bs + legR * (-chamber * 1.3 + s * 1.65), legR * s * 0.9] };
         T.pitch = kr * s * 0.5;
         T.larmU = -0.65 - kr * s * 0.55; T.larmL = 1.15 - kr * s * 0.75;
         T.rarmU = -1 - kr * s * 0.9; T.rarmL = 0.95 - kr * s * 1.7;

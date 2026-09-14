@@ -64,9 +64,15 @@
     const reach = rig.armParam('rarm');
     const fist = D.rarm.filter((_, k) => reach[k] > 0.64);
     const torso = D.torso;
+    // A placeholder sequence, written into the PDB the scene is built from so the
+    // hydropathy colouring has something to show: helices get an amphipathic heptad,
+    // strands alternate an inward valine and an outward threonine, loops are polar.
+    const sec = window.py2dmolCartoon?.assignSecondaryOpen?.(rig.bind.map(p => ({ x: p[0], y: p[1], z: p[2] })), n, null, {})?.sec || [];
+    const HEPTAD = ['LEU', 'GLU', 'ALA', 'LEU', 'LYS', 'LYS', 'GLU'], LOOP = ['GLY', 'SER', 'ASN', 'GLY', 'ASP'];
+    const names = Array.from({ length: n }, (_, i) => sec[i] === 'H' ? HEPTAD[i % 7] : sec[i] === 'E' ? (i % 2 ? 'THR' : 'VAL') : LOOP[i % 5]);
     return {
-      name, rig, n, motion, legs, legIdx, fist,
-      armIdx: [...D.larm, ...D.rarm], kick: [...D.rleg_shin, ...D.rleg_foot], torso,
+      name, rig, n, motion, legs, legIdx, fist, names,
+      armIdx: [...D.larm, ...D.rarm], kick: [...D.rleg_shin, ...D.rleg_foot], frontKick: [...D.lleg_shin, ...D.lleg_foot], torso,
       mid: torso[torso.length >> 1],   // a residue in the middle of the body
       // Deterministic per-residue direction, so jitter is stable frame to frame.
       jitterDir: Array.from({ length: n }, (_, i) => {
@@ -267,7 +273,7 @@
 
   // The striking end of the limb (see makeForm), where it is now.
   function strikePoints(f, move) {
-    const c = f.coords, idx = MOVES[move].fist === 'rarm' ? f.form.fist : MOVES[move].fist === 'wave' ? [] : f.form.kick;
+    const c = f.coords, idx = MOVES[move].fist === 'rarm' ? f.form.fist : MOVES[move].fist === 'wave' ? [] : move === 'kick' ? f.form.frontKick : f.form.kick;
     return idx.map(i => c[i]);
   }
 
@@ -389,7 +395,7 @@
   // the chain, which shows how each protein is threaded. pLDDT unless chosen otherwise.
   const COLOUR_KEY = 'protein-fighter-colour';
   let colour = (() => {
-    try { if (localStorage.getItem(COLOUR_KEY) === 'rainbow') return 'rainbow'; } catch {}
+    try { const v = localStorage.getItem(COLOUR_KEY); if (['rainbow', 'ss', 'hydro'].includes(v)) return v; } catch {}
     return 'plddt';
   })();
   function applyColour() {
@@ -398,14 +404,14 @@
       b.classList.toggle('on', on);
       b.setAttribute('aria-pressed', String(on));
     }
-    if (viewer) viewer.setColor(colour === 'rainbow' ? 'rainbow' : 'deepmind');   // deepmind: AlphaFold DB pLDDT colours
+    if (viewer) viewer.setColor({ rainbow: 'rainbow', ss: 'ss', hydro: 'hydrophobicity' }[colour] || 'deepmind');   // deepmind: AlphaFold DB pLDDT colours
   }
 
   function pdbText(a, b) {
     let s = '', n = 1;
-    for (const [chain, coords] of [['A', a], ['B', b]]) {
+    for (const [chain, coords, f] of [['A', a, fighters[0]], ['B', b, fighters[1]]]) {
       coords.forEach((q, i) => {
-        s += `ATOM  ${String(n++).padStart(5)}  CA  GLY ${chain}${String(i + 1).padStart(4)}    ` +
+        s += `ATOM  ${String(n++).padStart(5)}  CA  ${(f.form.names[i] || 'GLY').padEnd(3)} ${chain}${String(i + 1).padStart(4)}    ` +
           q.map(v => v.toFixed(3).padStart(8)).join('') + '  1.00 90.00           C\n';
       });
       s += 'TER\n';
@@ -1117,6 +1123,21 @@
     g.putImageData(img, 0, 0);
   }
 
+  // A click on a PAE map picks out the residues that pixel scores: the row's residues
+  // (aligned on) and the column's (measured), lit on the body for a moment.
+  let unpick = 0;
+  function pickPAE(i, e) {
+    const f = fighters[i], canvas = $('pae' + i), r = canvas.getBoundingClientRect();
+    const bx = Math.floor((e.clientX - r.left) / r.width * f.form.pb), by = Math.floor((e.clientY - r.top) / r.height * f.form.pb);
+    const base = i ? fighters[0].form.n : 0, idx = [];
+    for (const bin of [by, bx]) for (let k = bin * PAE_BIN; k < Math.min(f.form.n, (bin + 1) * PAE_BIN); k++) idx.push(base + k);
+    try { viewer.select(idx); } catch (err) { console.warn('selection', err); return; }
+    clearTimeout(unpick); unpick = setTimeout(() => { try { viewer.unselect(idx); } catch {} }, 1500);
+    const err = f.pae[by * f.form.pb + bx];
+    flash([f.x, 0, 0], `${by * PAE_BIN + 1}–${by * PAE_BIN + PAE_BIN} on ${bx * PAE_BIN + 1}–${bx * PAE_BIN + PAE_BIN}: ${err.toFixed(0)} Å`);
+  }
+  for (const i of [0, 1]) { const c = $('pae' + i); c.style.pointerEvents = 'auto'; c.style.cursor = 'crosshair'; c.onclick = e => pickPAE(i, e); }
+
   // Only what changed is written, so the page isn't restyled every frame for nothing.
   const shown = {};
   const setText = (id, v) => { if (shown[id] !== v) { shown[id] = v; $(id).textContent = v; } };
@@ -1627,7 +1648,7 @@
     applyTheme();
     resetRound();
     startViewer(fighters[0].coords, fighters[1].coords);
-    window.proteinFighter = { get fighters() { return fighters; }, get mode() { return mode; }, get viewer() { return viewer; }, camera: CAMERA, forms: FORMS, barrelGap, updatePAE, net };   // for poking at from the console
+    window.proteinFighter = { get fighters() { return fighters; }, get mode() { return mode; }, get phase() { return phase; }, get viewer() { return viewer; }, camera: CAMERA, forms: FORMS, barrelGap, updatePAE, net };   // for poking at from the console
     $('one').disabled = false;
     if (net.guest) joinRemote(window.Net.joinId());
     requestAnimationFrame(frame);

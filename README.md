@@ -67,6 +67,16 @@ Playing the CPU, both sets drive P1, and J / K punch and kick as well.
   unfolding, a shove back and a short brace. A low attack gets under a standing guard, so
   block it crouching; an attack from the air comes over a crouching guard, so block it
   standing. The CPU braces now and then too
+- Throw: forward and punch with the two torsos touching. It can't be blocked: the other
+  is lifted over your head and flung, tumbling, and the damage lands when it does
+- Heat shock: punch and kick together. A wave runs out along the membrane from your
+  hands, flinging ligands, and unfolds what it reaches; it runs low, so it is blocked
+  crouching. Once every four seconds
+- Hits in a row while the other is still reeling count up as a combo, each with its
+  damage; the CPU on HARD blocks most of what it sees coming, hits back while you are
+  recovering, kicks you out of the air and throws you up close, so a strike thrown over
+  and over is a bad idea. EASY and NORMAL are gentler
+- Under the title screen each player picks BARREL or BUNDLE, and a guest picks its own
 - Punch and kick change with what you are doing. Crouching they become low attacks,
   which unfold only the legs. In the air they hit from above. Pressing jump and an
   attack together gives the air attack, whichever lands first
@@ -94,9 +104,11 @@ held at 3.8 Å throughout.
 Music and effects are synthesised in the browser with WebAudio; SOUND ON/OFF toggles both.
 
 The switches under the timer pick a dark or light theme and how the proteins are
-coloured: by pLDDT (damage) or as a rainbow along the chain, blue at the N-terminus to
-red at the C-terminus, which shows how each protein is threaded. Both choices are
-remembered. The camera follows the fight, closing in when the fighters are close and
+coloured: by pLDDT (damage), as a rainbow along the chain, blue at the N-terminus to
+red at the C-terminus, which shows how each protein is threaded, by secondary structure,
+or by hydropathy of a placeholder sequence (helices an amphipathic heptad, strands
+alternating valine and threonine, loops polar). Both choices are remembered. Clicking a
+PAE map lights the two stretches of residues that pixel scores on the body. The camera follows the fight, closing in when the fighters are close and
 pulling back as they part, so the game fits a phone as well as a monitor; on a
 touchscreen the on-screen keys are the controls.
 
@@ -122,6 +134,13 @@ touchscreen the on-screen keys are the controls.
   poses both rigs through the game's motion and checks every CA–CA bond and rigid
   domain holds; the second runs py2Dmol's own secondary-structure assignment over each
   scaffold and checks that helices read as helix and sheets as strand
+- `tests/play.js` — plays the game in headless Chrome: a fight against the CPU with a
+  walk, a block, strikes, a heat shock, a throw and a PAE click, checking each registered
+  and nothing threw; `--remote` runs a host and a guest in two browsers over PeerJS. A
+  minute or two, since the browser draws with software OpenGL
+- `cell.js` — the cell behind the fight and the effects over it: membrane, vesicles, a
+  mitochondrion, ribosomes, microtubules, shadows, sparks, ligands, footfall ripples,
+  all drawn to the game's camera
 
 The walk in `game.js` is learned from `../dance/humanoid_v8_walk.pdb` (CMU mocap 07_01
 retargeted onto this rig): each thigh and shin's pitch over a stride, reduced to three

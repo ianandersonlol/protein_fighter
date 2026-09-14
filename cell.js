@@ -61,9 +61,21 @@
   }
   function ripple(x, size) { ripples.push({ x, age: 0, size }); }
   // The heat shock's front: a burst of hot sparks off the floor where the wave is, and a ring.
+  // The wave throws ligands: small molecules, a few atoms each on their bonds, that fly
+  // up off the membrane and tumble as they fall. Their shapes are picked from a few
+  // little templates (atom offsets in Å and which atoms bond), coloured by element.
+  const LIGANDS = [
+    { atoms: [[0, 0, 'C'], [1.4, 0.4, 'O'], [-1.3, 0.6, 'N'], [0.2, -1.4, 'C']], bonds: [[0, 1], [0, 2], [0, 3]] },
+    { atoms: [[-1.5, 0, 'C'], [0, 0.6, 'C'], [1.5, 0, 'O'], [0, -1.2, 'N']], bonds: [[0, 1], [1, 2], [1, 3]] },
+    { atoms: [[-2, 0, 'P'], [-0.6, 0.8, 'O'], [0.8, 0, 'C'], [2.1, 0.7, 'O'], [0.8, -1.4, 'N']], bonds: [[0, 1], [1, 2], [2, 3], [2, 4]] },
+    { atoms: [[0, 0, 'S'], [1.5, 0.5, 'C'], [-1.4, 0.7, 'C'], [0, -1.5, 'O']], bonds: [[0, 1], [0, 2], [0, 3]] },
+  ];
+  const ELEMENT = { C: '150,160,170', O: '235,80,70', N: '70,110,230', P: '240,150,40', S: '230,200,50' };
   function wave(x, dir) {
     ripples.push({ x, age: 0.15, size: 1.3 });
-    for (let i = 0; i < 6; i++) sparks.push({ x: x + (Math.random() - 0.5) * 12, y: 1, z: (Math.random() - 0.5) * 24, vx: dir * (40 + Math.random() * 80), vy: 90 + Math.random() * 160, vz: (Math.random() - 0.5) * 40, age: 0, life: 0.3 + Math.random() * 0.25, r: 1.4 + Math.random() * 1.6, kind: 'hit' });
+    for (let i = 0; i < 3; i++) sparks.push({ x: x + (Math.random() - 0.5) * 12, y: 2, z: (Math.random() - 0.5) * 30, vx: dir * (30 + Math.random() * 90), vy: 120 + Math.random() * 180, vz: (Math.random() - 0.5) * 50,
+      age: 0, life: 0.55 + Math.random() * 0.35, r: 1.6, kind: 'ligand', mol: LIGANDS[Math.floor(Math.random() * LIGANDS.length)], spin: (Math.random() - 0.5) * 12, ph: Math.random() * TAU });
+    for (let i = 0; i < 3; i++) sparks.push({ x: x + (Math.random() - 0.5) * 12, y: 1, z: (Math.random() - 0.5) * 24, vx: dir * (40 + Math.random() * 80), vy: 90 + Math.random() * 160, vz: (Math.random() - 0.5) * 40, age: 0, life: 0.3 + Math.random() * 0.25, r: 1.4 + Math.random() * 1.6, kind: 'hit' });
   }
 
   function drawFx(canvas, { project, scale, theme, dt, bodies }) {
@@ -86,6 +98,14 @@
       s.age += dt; s.vy -= 700 * dt; s.x += s.vx * dt; s.y += s.vy * dt; s.z += s.vz * dt;
       if (s.y < 1) { s.y = 1; s.vy *= -0.3; s.vx *= 0.6; }
       const k = s.age / s.life, [X, Y, c] = project(s.x, s.y, s.z);
+      if (s.kind === 'ligand') {   // a little molecule, spinning as it flies
+        const a = s.ph + s.spin * s.age, ca = Math.cos(a), sa = Math.sin(a), px = scale * c * 1.6, fade = 1 - k * k;
+        const at = s.mol.atoms.map(([ax, ay]) => [X + (ax * ca - ay * sa) * px, Y + (ax * sa + ay * ca) * px]);
+        ctx.strokeStyle = `rgba(${dark ? '220,225,235' : '60,70,90'},${0.8 * fade})`; ctx.lineWidth = Math.max(1, 0.35 * px);
+        for (const [i, j] of s.mol.bonds) { ctx.beginPath(); ctx.moveTo(at[i][0], at[i][1]); ctx.lineTo(at[j][0], at[j][1]); ctx.stroke(); }
+        s.mol.atoms.forEach(([, , el], i) => { ctx.fillStyle = `rgba(${ELEMENT[el]},${fade})`; ctx.beginPath(); ctx.arc(at[i][0], at[i][1], Math.max(1.2, 0.55 * px), 0, TAU); ctx.fill(); });
+        continue;
+      }
       const col = s.kind === 'block' ? P.membrane : P.warm;
       ctx.fillStyle = `rgba(${col},${(1 - k) * (dark ? 0.95 : 0.9)})`;
       ctx.beginPath(); ctx.arc(X, Y, Math.max(1, s.r * scale * c * (1 - k * 0.5)), 0, TAU); ctx.fill();
