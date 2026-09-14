@@ -60,6 +60,12 @@
     }
   }
   function ripple(x, size) { ripples.push({ x, age: 0, size }); }
+  // A ligand flung from a point on a body (a paddle tip, a hand): out along `dir`, up, and
+  // tumbling. `speed` scales the throw.
+  function fling(at, dir, speed = 1) {
+    sparks.push({ x: at[0], y: at[1], z: at[2], vx: dir * (90 + Math.random() * 150) * speed, vy: (50 + Math.random() * 150) * speed, vz: (Math.random() - 0.5) * 60,
+      age: 0, life: 0.5 + Math.random() * 0.35, r: 1.6, kind: 'ligand', mol: LIGANDS[Math.floor(Math.random() * LIGANDS.length)], spin: (Math.random() - 0.5) * 14, ph: Math.random() * TAU });
+  }
   // The heat shock's front: a burst of hot sparks off the floor where the wave is, and a ring.
   // The wave throws ligands: small molecules, a few atoms each on their bonds, that fly
   // up off the membrane and tumble as they fall. Their shapes are picked from a few
@@ -194,5 +200,5 @@
     ctx.fillStyle = veil; ctx.fillRect(0, 0, W, H * 0.24);
   }
 
-  window.Cell = { draw, spark, ripple, wave };
+  window.Cell = { draw, spark, ripple, wave, fling };
 })();

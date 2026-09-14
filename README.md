@@ -49,7 +49,11 @@ can't, so both devices need internet even on one Wi-Fi; the page loads PeerJS an
 library from unpkg. A status line under the switches shows the packet rate and the
 link's state on both sides. A TURN server of your own can be given as
 `?turn=turn:host:port&tu=user&tp=password` before pressing REMOTE; the join link carries
-it to the guest. A connection that fails says what the browser saw.
+it to the guest. A connection that fails says what the browser saw. Two computers on
+home networks usually connect directly through STUN; a phone on cellular data, or a
+strict corporate NAT, needs a relay, and PeerJS's public relay hands out no relay
+candidates any more (measured September 2026), so those pairs need a TURN server of
+your own through `?turn=`.
 
 | | P1 (left hand) | P2 (right hand) |
 | --- | --- | --- |
@@ -76,8 +80,9 @@ Playing the CPU, both sets drive P1, and J / K / L punch, kick and block as well
 - A special, punch and kick together, once every four seconds, and it differs by
   protein. The barrel's is the heat shock: a wave runs out along the membrane from its
   hands, flinging ligands, and unfolds what it reaches; it runs low, so it is blocked
-  crouching. The bundle's is the helix spin: it whirls twice round with both paddles out,
-  and can catch you twice. The thin meter under each health bar fills as it comes back and lights when it is ready
+  crouching, and the hands fling ligands as they drive down. The bundle's is the helix spin:
+  it whirls twice round with both paddles out, ligands flying off their tips, and can catch
+  you twice; it shoves hard. The thin meter under each health bar fills as it comes back and lights when it is ready
 - Hits in a row while the other is still reeling count up as a combo, each with its
   damage; the CPU on HARD blocks most of what it sees coming, hits back while you are
   recovering and kicks you out of the air, so a strike thrown over and over is a bad

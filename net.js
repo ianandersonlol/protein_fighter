@@ -101,7 +101,7 @@
     peer.on('error', e => onError(String(e && e.type || e)));
     peer.on('open', () => {
       conn = peer.connect(id, { reliable: true });
-      timer = setTimeout(() => { if (!conn || !conn.open) onError(`No route to the host after 20 s (${why(conn)}). A firewall or strict NAT may be in the way; a TURN relay would get past it.`); }, OPEN_TIMEOUT);
+      timer = setTimeout(() => { if (!conn || !conn.open) onError(`No route to the host after 20 s (${why(conn)}). The two networks would not connect directly, and PeerJS's public relay is not answering (measured: it hands out no relay candidates). Home Wi-Fi usually connects; a phone on cellular data often cannot. A TURN relay of your own gets past it: add ?turn=turn:host:port&tu=user&tp=password to the host's page before pressing REMOTE.`); }, OPEN_TIMEOUT);
       conn.on('open', () => {
         clearTimeout(timer);
         try { conn.send({ t: 'hello', role }); } catch {}

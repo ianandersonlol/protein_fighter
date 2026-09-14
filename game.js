@@ -36,12 +36,16 @@
     // that unfolds what it reaches. It runs low, so it is blocked crouching. Once in a while.
     special:  { duration: 0.75, active: 0.18, window: 0.32, damage: 9,  stun: 0.4,  push: 220, fist: 'wave',      text: 'HEAT SHOCK', low: true, wave: true, reach: 300, again: 4 },
     // The bundle's own: a whirl with both paddles out, that can catch the other twice.
-    spin:     { duration: 0.8,  active: 0.12, window: 0.5,  damage: 6,  stun: 0.3,  push: 170, fist: 'arms',      text: 'HELIX SPIN', wave: true, spin: true, multi: 2, again: 4 },
+    spin:     { duration: 0.8,  active: 0.12, window: 0.5,  damage: 6,  stun: 0.3,  push: 320, fist: 'arms',      text: 'HELIX SPIN', wave: true, spin: true, multi: 2, again: 4 },
   };
   const SPECIAL = { barrel: 'special', helix: 'spin' };   // each protein's special, by form
   const GRAB = 34;            // Å between torsos, as drawn, within which a throw takes hold
   const THROWS = false;       // the throw is switched off for now: it needs more work before it is worth having
   const REACH = 13;           // Å from striking residues to any defender residue
+  // ...trimmed for the bundle, whose straight helix legs and long hairpin arms reached 5-10 Å
+  // further than the barrel's at the same damage (measured: a kick landed from a 110 Å gap
+  // against the barrel's 100), which read as the bundle simply hitting harder.
+  const STRIKE_REACH = { barrel: 14, helix: 10 };
   const REFOLD = 0.02, REFOLD_DELAY = 2;   // unfolding recovered per residue per second, after this long unhit
   const DAMAGE_SCALE = 0.55;               // every hit softened, so a round takes about twice as many
 
@@ -147,7 +151,7 @@
     Object.assign(f, { action: move, t: 0, hit: false, cooldown: m.duration });
     // The limb swings with a whoosh: short and high for a punch, longer and lower for a
     // kick. A guest hears its own fighter's here and the host's through the event.
-    if (!m.wave) { const kind = m.fist === 'rarm' ? 'punch' : 'kick'; sfx.swing(kind); if (!(mode === 3 && f === fighters[1])) netEvent('sfx', 'swing', kind); }
+    if (!m.wave) sfx.swing(m.fist === 'rarm' ? 'punch' : 'kick');
     f.fatigue = Math.min(1, f.fatigue + 0.12);
     return true;
   }
@@ -295,7 +299,7 @@
   // is within reach. Damage, the dent and the callout all centre on that residue, so the
   // hit shows on the part that was actually struck rather than at the attacker's fist.
   function contact(a, b) {
-    let best = null, bestD = REACH;
+    let best = null, bestD = STRIKE_REACH[a.form.name] ?? REACH;
     for (const s of strikePoints(a, a.action)) for (const q of b.coords) {
       const d = Math.hypot(s[0] - q[0], s[1] - q[1], s[2] - q[2]);
       if (d < bestD) { bestD = d; best = q; }
@@ -834,7 +838,13 @@
     fighters.forEach((f, i) => { f.guard = f.y === 0 && f.stun <= 0 && !MOVES[f.action] && f.action !== 'thrown' && f.hp > 0 && (held[i].has('block') || f.blockHold > 0); });
     for (const f of fighters) if (f.action === 'thrown' && f.heldBy != null) holdThrown(f);
     for (const f of fighters) if (f.action === 'special') { const w = waveAt(f); if (w != null && (net.seq & 1) === 0) window.Cell?.wave(w, f.facing); }
-    for (const f of fighters) if (f.action === 'spin' && f.t > MOVES.spin.active && f.t < MOVES.spin.active + MOVES.spin.window && net.seq % 3 === 0) window.Cell?.spark(f.coords[f.form.mid], f.facing * (net.seq % 6 < 3 ? 1 : -1), 3, 'block');
+    // The helix spin flings ligands off the tips of its paddles as they whirl; the heat
+    // shock throws them from the hands as they drive down, before the wave takes over.
+    for (const f of fighters) {
+      const m = MOVES[f.action], live = m && f.t > m.active && f.t < m.active + m.window;
+      if (f.action === 'spin' && live && net.seq % 2 === 0) for (const tip of [f.form.fist, f.form.fistL]) { const at = f.coords[tip[tip.length - 1]], c = f.coords[f.form.mid]; window.Cell?.fling(at, Math.sign(at[0] - c[0]) || f.facing, 1.2); }
+      if (f.action === 'special' && f.t > m.active * 0.5 && f.t < m.active + 0.12 && net.seq % 2 === 0) for (const tip of [f.form.fist, f.form.fistL]) window.Cell?.fling(f.coords[tip[tip.length - 1]], f.facing, 1);
+    }
 
     keepTogether();
 
@@ -1250,7 +1260,7 @@
     } catch { return null; }
   }
   function tone(freq, to, dur, { type = 'sine', gain = 0.3, delay = 0, dest = null } = {}) {
-    const a = out(); if (!a) return;
+    const a = out(); if (!a || !(gain > 1e-4)) return;   // a silent voice is no voice: a ramp to zero throws
     dest = dest || bus;   // the bus exists once out() has run, which may be only now (a guest hears sounds before it has touched anything)
     const t = a.currentTime + delay, o = a.createOscillator(), g = a.createGain();
     o.type = type; o.frequency.setValueAtTime(freq, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, to), t + dur);
@@ -1258,7 +1268,7 @@
     o.connect(g).connect(dest); o.start(t); o.stop(t + dur + 0.02);
   }
   function noise(dur, from, to, { gain = 0.3, filter = 'lowpass', delay = 0, dest = null } = {}) {
-    const a = out(); if (!a) return;
+    const a = out(); if (!a || !(gain > 1e-4)) return;
     dest = dest || bus;
     if (!noiseBuf) {   // one shared two seconds of noise, each burst starting somewhere in it
       noiseBuf = a.createBuffer(1, a.sampleRate * 2, a.sampleRate);
@@ -1276,15 +1286,23 @@
   // Battle music: a driving theme in D minor, synthesised like the effects and scheduled
   // a little ahead on the audio clock. Drums, a galloping bass and string chords under
   // Dm–B♭–F–C; every other four bars a brass-like lead comes in over the top.
-  const BPM = 140, STEP16 = 60 / BPM / 4;
-  const CHORDS = [[50, 53, 57], [46, 50, 53], [53, 57, 60], [48, 52, 55]];
-  const LEAD = [
-    [74, 0, 74, 77, 76, 0, 74, 0], [70, 0, 70, 74, 72, 0, 70, 0],
-    [72, 0, 72, 77, 76, 0, 72, 0], [76, 0, 76, 79, 77, 0, 76, 74],
+  // The theme, in the spirit of an arcade fighter's techno: a driving four-on-the-floor
+  // with a clap, open hats off the beat, a sawtooth bass hammering sixteenths on the root
+  // with octave jumps, orchestral-hit stabs on the downbeats, and an arpeggiated riff in
+  // A minor over the second half of the loop. i - VI - VII - i, sixteen bars.
+  const BPM = 132, STEP16 = 60 / BPM / 4;
+  const CHORDS = [[45, 48, 52], [41, 45, 48], [43, 47, 50], [45, 48, 52]];   // Am F G Am
+  // The riff: sixteen steps a bar (0 = rest), transposed to each bar's chord root.
+  const RIFF = [
+    [12, 0, 12, 15, 12, 0, 19, 0, 12, 0, 15, 0, 17, 15, 12, 0],
+    [12, 0, 12, 15, 12, 0, 19, 0, 24, 0, 22, 19, 17, 0, 15, 0],
   ];
+  // The bass line: which sixteenths sound, and the octave (0 root, 1 up) on each.
+  const BASS = [1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0].map((up, i) => ({ on: i % 4 !== 3 || i === 7 || i === 15, up }));
   const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
   let musicBus = null, musicTimer = 0, musicStep = 0, musicAt = 0;
   function voice(m, t, dur, { type = 'sawtooth', gain = 0.1, cutoff = 1800, attack = 0.01, detune = 0 } = {}) {
+    if (!(gain > 1e-4)) return;
     const o = audio.createOscillator(), lp = audio.createBiquadFilter(), g = audio.createGain();
     o.type = type; o.frequency.value = mtof(m); o.detune.value = detune;
     lp.type = 'lowpass'; lp.frequency.value = cutoff;
@@ -1292,23 +1310,34 @@
     g.gain.exponentialRampToValueAtTime(gain * 0.6, t + dur * 0.6); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     o.connect(lp).connect(g).connect(musicBus); o.start(t); o.stop(t + dur + 0.05);
   }
+  // An orchestral hit: the chord slammed in three octaves through a fast decay, with a
+  // burst of noise on the front.
+  function stab(chord, t, gain = 1) {
+    for (const n of chord) for (const [oct, g, cut] of [[-12, 0.16, 900], [0, 0.11, 2600], [12, 0.05, 5000]])
+      voice(n + oct, t, 0.22, { type: 'sawtooth', gain: g * gain, cutoff: cut, attack: 0.004, detune: (oct + 12) * 0.4 - 4 });
+    noise(0.14, 5000, 700, { gain: 0.35 * gain, delay: t - audio.currentTime, dest: musicBus });
+  }
   function bar16(i, t) {
-    const bar = Math.floor(i / 16) % 8, s = i % 16, chord = CHORDS[bar % 4];
+    const bar = Math.floor(i / 16) % 16, s = i % 16, chord = CHORDS[bar % 4], root = chord[0];
     const at = { delay: t - audio.currentTime, dest: musicBus };
-    if ([0, 3, 8, 10].includes(s) || (bar % 2 === 1 && s === 14)) tone(130, 42, 0.25, { gain: 0.8, ...at });   // kick
-    if (s === 4 || s === 12) { noise(0.2, 5000, 1200, { gain: 0.4, ...at }); tone(210, 140, 0.08, { type: 'triangle', gain: 0.25, ...at }); }   // snare
-    if (s % 2 === 0) noise(0.035, 9000, 6000, { gain: s % 4 === 2 ? 0.1 : 0.05, filter: 'highpass', ...at });   // hats
-    if (bar === 7 && s >= 12) tone(190 - (s - 12) * 30, 60, 0.2, { gain: 0.5, ...at });   // tom fill into the top
-    if (bar === 0 && s === 0) noise(1.6, 9000, 2500, { gain: 0.2, filter: 'highpass', ...at });   // crash
-    if (s % 4 !== 1) voice(chord[0] - 12 + (s === 6 || s === 14 ? 12 : 0), t, STEP16 * 1.6, { gain: 0.16, cutoff: 700 });   // bass
-    if (s === 0) for (const n of chord) for (const detune of [-8, 8])   // strings, a chord a bar
-      voice(n + 12, t, STEP16 * 15, { gain: 0.03, cutoff: 2200, attack: 0.08, detune });
-    if (bar >= 4 && s % 2 === 0) {   // lead
-      const line = LEAD[bar - 4], k = s / 2, n = line[k];
+    const drop = bar === 7 || bar === 15;   // a bar before the top: the drums drop out for the fill
+    if (s % 4 === 0 && !(drop && s >= 8)) tone(150, 40, 0.28, { gain: 0.95, ...at });   // kick, four on the floor
+    if ((s === 4 || s === 12) && !drop) { noise(0.16, 6000, 1500, { gain: 0.5, ...at }); noise(0.05, 3000, 2500, { gain: 0.3, delay: at.delay + 0.012, dest: musicBus }); }   // clap
+    if (s % 4 === 2) noise(0.12, 9000, 7000, { gain: 0.1, filter: 'highpass', ...at });   // open hat off the beat
+    else if (s % 2 === 0) noise(0.03, 9000, 6000, { gain: 0.05, filter: 'highpass', ...at });
+    if (drop && s >= 8 && s % 2 === 0) tone(220 - (s - 8) * 18, 70, 0.18, { gain: 0.55, ...at });   // the tom fill
+    if (bar % 8 === 0 && s === 0) noise(1.4, 9000, 2500, { gain: 0.22, filter: 'highpass', ...at });   // crash on the top
+    const bs = BASS[s];
+    if (bs.on) voice(root - 12 + 12 * bs.up, t, STEP16 * 0.9, { gain: 0.2, cutoff: 500 + 700 * bs.up, attack: 0.004 });   // the ostinato
+    if (s === 0 || (bar % 2 === 1 && s === 6)) stab(chord, t, s === 0 ? 1 : 0.7);   // the hits
+    if (s === 0) for (const n of chord) for (const detune of [-7, 7])   // a pad under it
+      voice(n + 12, t, STEP16 * 15, { gain: 0.025, cutoff: 1800, attack: 0.1, detune });
+    if (bar >= 8 && bar < 15) {   // the riff, over the second half of the loop
+      const n = RIFF[(bar >> 1) & 1][s];
       if (n) {
-        const dur = STEP16 * (line[k + 1] === 0 ? 4 : 2) * 0.95;
-        voice(n, t, dur, { gain: 0.07, cutoff: 2600, detune: 5 });
-        voice(n - 12, t, dur, { gain: 0.04, cutoff: 1800, detune: -5 });
+        const next = RIFF[(bar >> 1) & 1][(s + 1) % 16], dur = STEP16 * (next ? 1 : 2) * 0.9;
+        voice(root + 12 + n, t, dur, { gain: 0.07, cutoff: 3200, type: 'square', attack: 0.005 });
+        voice(root + n, t, dur, { gain: 0.045, cutoff: 2200, detune: 6 });
       }
     }
   }
@@ -1517,7 +1546,14 @@
   // ----------------------------------------------------------------------- loop
   let last = performance.now(), acc = 0, drawn = 0;   // frames drawn
   const DT = 1 / 60;
+  let tripped = 0;   // exceptions a step has thrown, reported once
   function frame(now) {
+    // Whatever a step throws, the next frame is still asked for: an exception that
+    // escaped here stopped the loop for good, which showed as the game freezing.
+    try { frameBody(now); } catch (err) { if (!tripped++) console.error('a frame threw', err); }
+    requestAnimationFrame(frame);
+  }
+  function frameBody(now) {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     let moved = false;
@@ -1548,7 +1584,6 @@
       if (net.link && ++net.seq % 4 === 0) sendState();   // 15 packets a second
     }
     hud(); if (net.link || net.guest) netStatus(now);
-    requestAnimationFrame(frame);
   }
 
   // ---------------------------------------------------------------- remote play
