@@ -63,6 +63,10 @@ Playing the CPU, both sets drive P1, and J / K punch and kick as well.
 - Jump: tap for a short hop, hold for a full jump that clears the other fighter; add a
   direction to jump forward or back
 - Crouch
+- Block: hold back, away from the other fighter, and a blow is taken on the guard: no
+  unfolding, a shove back and a short brace. A low attack gets under a standing guard, so
+  block it crouching; an attack from the air comes over a crouching guard, so block it
+  standing. The CPU braces now and then too
 - Punch and kick change with what you are doing. Crouching they become low attacks,
   which unfold only the legs. In the air they hit from above. Pressing jump and an
   attack together gives the air attack, whichever lands first

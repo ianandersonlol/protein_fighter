@@ -138,7 +138,7 @@
     // What the body is doing, as targets. env: clock, and what damage has done to its
     // bearing - sag (slumped), crawl (nearly gone), tired (breathing), kickRange.
     function poseOf(f, env) {
-      const pose = f.hp <= 0 ? 'ko' : f.stun > 0 ? 'hurt' : MOVES[f.action] ? f.action
+      const pose = f.hp <= 0 ? 'ko' : f.stun > 0 ? 'hurt' : f.blockStun > 0 ? 'block' : MOVES[f.action] ? f.action
         : f.y > 0 ? 'jump' : f.action;
       const s = MOVES[pose] ? extension(pose, f.t) : 0;
       const { sag, crawl, tired, kickRange: kr } = env;
@@ -199,6 +199,14 @@
         T.legs.r = [0.45 + kr * s * 0.3, -1.2 + kr * s * 2.1, kr * s * 0.9];
         T.pitch = kr * s * 0.35;
         T.larmU = -0.3; T.rarmU = -1.2;
+      } else if (pose === 'block') {
+        // Braced: both forearms up and across the face, the head tucked behind them, the
+        // body leaning back off the blow and the knees giving a little, kneeling if
+        // crouched. The brace eases off as the blockstun runs out.
+        const r = clamp01(f.blockStun / 0.15);
+        T.larmU = -1.35; T.larmL = 1.75; T.rarmU = -1.5; T.rarmL = 1.65;
+        T.pitch = -0.15 * r; T.head = 0.35; T.bend = 8 * r;
+        if (f.crouch) T.low = 1;
       } else if (pose === 'rest') {
         // Round won: guard down, arms hanging loose with a little bend at the elbow.
         T.larmU = T.rarmU = -1.4 + breath; T.larmL = T.rarmL = -1.2; T.head = 0.25 + breath;
@@ -234,7 +242,7 @@
       else if (pose === 'idle' && !f.crouch && f.y === 0) T.bend = 2.5 * (0.5 + 0.5 * Math.sin(env.clock * 2 * Math.PI * 1.4 + f.seed));
       // How fast the pose follows: strikes land on time, a knockout goes slack slowly.
       const bracing = f.squat > 0 || f.landing > 0;
-      T.omega = MOVES[pose] ? 60 : bracing ? 55 : pose === 'hurt' ? 40 : pose === 'ko' ? 10
+      T.omega = MOVES[pose] ? 60 : bracing ? 55 : pose === 'hurt' ? 40 : pose === 'block' ? 50 : pose === 'ko' ? 10
         : f.y > 0 ? 28 : f.action === 'walk' ? 45 : f.crouch ? 26 : 15;   // rad/s
       return T;
     }
@@ -400,7 +408,7 @@
       // 6. The rig, turned to face ±x (a rotation, not a mirror, so chirality survives) and
       // set on the hips. Turning round is a swing through the front, not a flip: the yaw
       // springs from one facing to the other in about a sixth of a second.
-      const yaw = spring(M, 'yaw', fc * Math.PI / 2, 30, dt), cy = Math.cos(yaw), sy = Math.sin(yaw);
+      const yaw = spring(M, 'yaw', fc * Math.PI / 2, 36, dt), cy = Math.cos(yaw), sy = Math.sin(yaw);
       const p = rig.pose({
         root_R: X(pitch),
         larm_upper: arm(-1, lu + S.l[0] * k), larm_lower: arm(-1, ll + S.l[0] * 1.6 * k),

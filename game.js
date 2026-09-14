@@ -104,6 +104,8 @@
       jit: 5,
       settle: 0,                     // 1 → 0 while a new round's body gathers itself up
       action: 'idle', t: 0, hit: false, stun: 0, cooldown: 0,
+      blockStun: 0,                  // braced behind a block, briefly unable to act
+      blockHold: 0,                  // the CPU holding back to block, for this long
       unfold: new Float32Array(N),   // 0 folded … 1 denatured, per residue
       limp: 0.8,                     // how loose a fully unfolded residue hangs off the pose
       seed: Math.random() * 100,
@@ -113,7 +115,7 @@
 
   function attack(f, move) {
     const m = MOVES[move];
-    if (!m || f.stun > 0 || MOVES[f.action] || f.cooldown > 0) return false;
+    if (!m || f.stun > 0 || f.blockStun > 0 || MOVES[f.action] || f.cooldown > 0) return false;
     if (!!m.air !== f.y > 0) return false;
     Object.assign(f, { action: move, t: 0, hit: false, cooldown: m.duration });
     f.fatigue = Math.min(1, f.fatigue + 0.12);
@@ -562,7 +564,7 @@
   }
 
   function walk(f, dir, dt, speed = 1) {
-    if (f.stun > 0 || MOVES[f.action] || f.y > 0) return;
+    if (f.stun > 0 || f.blockStun > 0 || MOVES[f.action] || f.y > 0) return;
     const pace = (dir === -f.facing ? 0.6 : 1) * mobility(f) * speed;   // backing off is slower; bad legs slower still
     const dx = dir * WALK * pace * dt;
     f.x += dx;
@@ -597,8 +599,8 @@
   // you are heading.
   function control(f, h, dt) {
     const dir = (h.has('right') ? 1 : 0) - (h.has('left') ? 1 : 0);
-    const free = f.stun <= 0 && !MOVES[f.action] && f.y === 0 && !f.squat;
-    f.crouch = free && h.has('down');
+    const free = f.stun <= 0 && f.blockStun <= 0 && !MOVES[f.action] && f.y === 0 && !f.squat;
+    f.crouch = (free || f.blockStun > 0) && h.has('down');
     walk(f, f.crouch || f.squat ? 0 : dir, dt);
     if (h.has('up') && free) { f.squat = SQUAT; f.jumpDir = dir; f.upReleased = false; h.delete('up'); }
     if (f.queued) {   // an attack pressed with the jump comes out once airborne
@@ -625,6 +627,14 @@
       }
     }
     if (c.y > 30 && gap < 70 && Math.random() < 0.1) attack(c, Math.random() < 0.6 ? 'airkick' : 'airpunch');
+    // Sees a strike coming: some of the time it braces, crouching for a low one, standing
+    // for one from the air, and holds the guard a little past the blow.
+    const pm = MOVES[p.action];
+    if (pm && p.t < pm.active && gap < 85 && c.blockHold <= 0 && c.y === 0 && c.stun <= 0 && !MOVES[c.action] && Math.random() < 0.02) {
+      c.blockHold = 0.45; c.crouch = !!pm.low;
+    }
+    if (c.blockHold > 0) { if (c.crouch && !(pm && pm.low)) c.crouch = false; }
+    else if (c.crouch && c.blockStun <= 0) c.crouch = false;
     // Footwork with a margin. It closes in at half a walk until it reaches its spacing, then
     // holds until the gap has opened 18 Å past that, and never sets off again within 0.4 s
     // of stopping. On a single threshold it flipped between walking and standing every few
@@ -634,7 +644,10 @@
     B.since += dt;
     if (B.approach && gap <= spacing) { B.approach = false; B.since = 0; }
     else if (!B.approach && gap > spacing + 18 && B.since > 0.4) { B.approach = true; B.since = 0; }
-    walk(c, B.approach ? toward : 0, dt, 0.5);
+    // Half a walk to close in, but a full one to catch up, and to run down a player who
+    // keeps backing off (backing off is the slower walk, so it is caught).
+    const fleeing = p.action === 'walk' && held[0].has(toward > 0 ? 'right' : 'left');
+    walk(c, B.approach ? toward : 0, dt, fleeing || gap > 130 ? 1 : 0.5);
   }
 
   // Bodies push each other only where they actually touch: the two torsos (the β-barrel,
@@ -664,12 +677,13 @@
     for (let i = 0; i < f.form.n; i++) { f.coords[i][0] += dx; f.prev[i][0] += dx; }
     return Math.abs(dx);
   }
-  // Neither fighter can back away beyond the frame: past MAX_GAP apart, both are held.
+  // Neither fighter can back away beyond the frame: the one moving off past MAX_GAP is
+  // stopped there, as by a wall, while the other can still close in.
   function keepTogether() {
-    const [a, b] = fighters, gap = b.x - a.x, over = Math.abs(gap) - MAX_GAP;
-    if (over <= 0) return;
-    const s = Math.sign(gap) * over / 2;
-    a.x += s; b.x -= s;
+    for (const f of fighters) {
+      const o = fighters[1 - fighters.indexOf(f)], d = f.x - o.x;
+      if (Math.abs(d) > MAX_GAP) f.x = o.x + Math.sign(d) * MAX_GAP;
+    }
   }
   function collide(a, b) {
     for (let it = 0; it < 4; it++) {
@@ -689,6 +703,7 @@
     for (const f of fighters) {
       f.t += MOVES[f.action] ? dt / strikeSlow(f) : dt;   // a battered limb strikes slower
       f.stun = Math.max(0, f.stun - dt); f.cooldown = Math.max(0, f.cooldown - dt);
+      f.blockStun = Math.max(0, f.blockStun - dt); f.blockHold = Math.max(0, f.blockHold - dt);
       f.fatigue = Math.max(0, f.fatigue - dt * 0.08);
       physics(f, dt);
       f.dents = f.dents.filter(hit => (hit.t += dt) < DENT_LIFE);
@@ -731,6 +746,13 @@
       // Everything a blow does follows its strength: the damage, and also how far it
       // shoves, how deep it dents, how long it stuns and how hard it lands on screen.
       const power = strikePower(a, a.action);
+      if (canBlock(b, 1 - i, m)) {
+        blockHit(i, a.action, at, power);
+        netEvent('block', i, a.action, at, power);
+        flash(at, 'BLOCK');
+        sfx.block();
+        return;
+      }
       landHit(i, a.action, at, power);
       netEvent('hit', i, a.action, at, power);
       flash(at, m.text);
@@ -743,6 +765,27 @@
       if (!fighters.some(f => f.hp === 0)) announce('TIME');
       sfx.ko();
     }
+  }
+
+  // Blocking, as Street Fighter has it: hold back (away from the attacker) on the ground,
+  // not in the middle of anything, and the blow is taken on the guard. A low blow gets
+  // under a standing guard and must be blocked crouching; one from the air comes over a
+  // crouching guard and must be blocked standing. The CPU holds back for a moment of its
+  // own accord now and then (blockHold).
+  function canBlock(b, j, m) {
+    if (b.y > 0 || b.stun > 0 || MOVES[b.action] || b.hp === 0) return false;
+    const back = b.facing > 0 ? 'left' : 'right';
+    if (!(b.blockHold > 0 || held[j].has(back))) return false;
+    return m.low ? b.crouch : m.overhead ? !b.crouch : true;
+  }
+  // A blocked blow: no damage, a short brace, a shove back, and the guard arms jolted.
+  function blockHit(i, move, at, power) {
+    const a = fighters[i], b = fighters[1 - i], m = MOVES[move];
+    a.hit = true;
+    b.vx = a.facing * m.push * 0.55 * power;
+    b.blockStun = m.stun * 0.75; b.lastHit = at;
+    b.form.motion.jolt(b, { arms: (a.facing * b.facing < 0 ? -1 : 1) * 3 * power, head: 0, legs: m.low ? 3 : 1 });
+    hitstop = 0.03;
   }
 
   // A blow from fighter i's `move` landing at `at` with this much of its strength.
@@ -1266,7 +1309,7 @@
   // last packet (hits, callouts, the finisher, sounds). The unfolding travels only when
   // it changed. About 2 KB a packet.
   const SNAP = ['x', 'y', 'vx', 'vy', 'facing', 'hp', 'crouch', 'sinceHit', 'squat', 'jumpDir', 'upReleased', 'landing', 'landPower',
-    'fatigue', 'jit', 'settle', 'action', 't', 'hit', 'stun', 'cooldown', 'limp', 'seed', 'lastLow'];
+    'fatigue', 'jit', 'settle', 'action', 't', 'hit', 'stun', 'cooldown', 'limp', 'seed', 'lastLow', 'blockStun', 'blockHold'];
   // What a guest keeps its own for the fighter it drives: its keys have already moved
   // it, and the host's word on where it was a moment ago would only drag it back.
   const OWN = new Set(['y', 'vy', 'crouch', 'squat', 'jumpDir', 'upReleased', 'landing', 'landPower', 'action', 't']);
@@ -1316,6 +1359,7 @@
     for (const e of h.ev || []) {
       if (e[0] === 'reset') resetRound();
       else if (e[0] === 'hit' && fighters[e[1]].motion) landHit(e[1], e[2], e[3], e[4]);
+      else if (e[0] === 'block' && fighters[e[1]].motion) blockHit(e[1], e[2], e[3], e[4]);
       else if (e[0] === 'flash') flash([e[1], 0, 0], e[2]);
       else if (e[0] === 'finish') finisher(e[1], true);
       else if (e[0] === 'sfx' && sfx[e[1]]) sfx[e[1]](...e.slice(2));
