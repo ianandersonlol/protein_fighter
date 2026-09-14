@@ -475,6 +475,8 @@
       return H / 2 - ry * scale * c;
     };
     const far = line(FLOOR_FAR_Z), depth = line(FLOOR_NEAR_Z) - far;
+    // The cell behind everything, drawn to the same camera.
+    window.Cell?.draw($('cell'), { camX: CAMERA.x, scale, floorFar: far, floorDepth: depth, theme, t: clock });
     // The floor's grid is drawn in the world: a line every GRID Å, scrolling with the camera.
     const step = GRID * scale, gridX = W / 2 - (CAMERA.x % GRID) * scale;
     const key = `${far.toFixed(1)}|${depth.toFixed(1)}|${step.toFixed(2)}|${gridX.toFixed(1)}`;
