@@ -349,7 +349,7 @@
   const held = [new Set(), new Set()];   // directions each player is holding
   let mode = 1;                           // 1: you vs the CPU · 2: two players, one keyboard
   let fighters, wins = [0, 0], round = 1, time = 60, phase = 'ready', clock = 0, koTimer = 0, ai = 0, hitstop = 0;
-  const names = () => ['P1', mode === 2 ? 'P2' : 'CPU'];
+  const names = () => ['P1', 'P2'];   // the CPU is P2 too
 
   function resetRound() {
     fighters = [newFighter(-80, 1), newFighter(80, -1)];
@@ -381,17 +381,8 @@
     const winner = p.hp === c.hp ? -1 : p.hp > c.hp ? 0 : 1;
     if (winner >= 0) wins[winner]++;
     phase = 'over';
-    const match = wins.includes(2), who = names();
-    let title, msg;
-    if (winner < 0) { title = 'DRAW'; msg = 'Refold. Refocus.'; }
-    else if (mode === 1) {
-      title = winner === 0 ? (match ? 'YOU WIN' : 'CPU DENATURED') : 'DENATURED';
-      msg = winner === 0 ? (match ? 'Still folded. Run it back?' : 'Round to you.') : (match ? 'Run it back?' : 'Refold. Refocus.');
-    } else {
-      title = `${who[1 - winner]} DENATURED`;
-      msg = match ? `${who[winner]} wins the match.` : `Round to ${who[winner]}.`;
-    }
-    overlay(title, msg, match ? null : 'REFOLD');
+    const match = wins.includes(2);
+    overlay(winner < 0 ? 'DRAW' : 'DENATURED', match ? 'Run it back?' : 'Refold. Refocus.', match ? null : 'REFOLD');
     round++;
   }
 
