@@ -792,9 +792,9 @@
     round++;
   }
 
-  function walk(f, dir, dt) {
+  function walk(f, dir, dt, speed = 1) {
     if (f.stun > 0 || MOVES[f.action] || f.y > 0) return;
-    const pace = (f.run ? RUN : dir === -f.facing ? 0.6 : 1) * mobility(f);   // backing off is slower; bad legs slower still
+    const pace = (f.run ? RUN : dir === -f.facing ? 0.6 : 1) * mobility(f) * speed;   // backing off is slower; bad legs slower still
     const dx = dir * WALK * pace * dt;
     f.x += dx;
     f.stride += dx * f.facing;
@@ -861,7 +861,9 @@
       }
     }
     if (provoked && c.y > 30 && gap < 70 && Math.random() < 0.1) attack(c, Math.random() < 0.6 ? 'airkick' : 'airpunch');
-    walk(c, gap > 62 && !c.guard ? toward : 0, dt);
+    // It closes in at half a walk, and before the player has struck it stops further off,
+    // squaring up at a distance instead of crowding in.
+    walk(c, gap > (provoked ? 62 : 95) && !c.guard ? toward : 0, dt, 0.5);
   }
 
   // Bodies push each other only where they actually touch: the two β-barrels, the
