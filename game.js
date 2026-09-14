@@ -33,6 +33,7 @@
     return {
       x, y: 0, vx: 0, vy: 0, facing, hp: 100, crouch: false, run: false, stride: 0, queued: null, sinceHit: 99,
       squat: 0, jumpDir: 0, upReleased: false, landing: 0, landPower: 0,
+      anim: null,                    // joint springs, so poses blend instead of snapping
       action: 'idle', t: 0, hit: false, guard: false, stun: 0, cooldown: 0,
       unfold: new Float32Array(N),   // 0 folded … 1 denatured, per residue
       limp: 0.35,                    // how much of that damage the body gives in to
@@ -201,6 +202,7 @@
   // secondary-structure assignment stops calling them helix or strand.
   function targets(f, clock) {
     const { tr, pose } = transforms(f, clock);
+    blendPose(f, tr, pose);
     // Rig forward is +z, up is +y. A rotation, not a mirror, so chirality survives.
     const p = rig.pose(tr).map(([x, y, z]) => f.facing > 0 ? [z, y, -x] : [-z, y, x]);
     // On the ground the feet stand on the floor (the planted one, mid-kick). In the air
@@ -230,6 +232,46 @@
   // Mid-fight a residue only goes partway limp (f.limp), so a battered protein
   // still stands; a knockout lets go completely.
   const TICK = 1 / 60;
+
+  // Poses are targets, not snapshots. Every joint follows its target on a spring, so a
+  // fighter moves into a crouch, a guard or a kick instead of jumping to it: bending
+  // down starts slow and gathers speed, then settles with a little give. Strikes and
+  // recoil use stiff springs so they still land on time, walking is stiff enough to
+  // keep the feet planted, and a knockout goes slack slowly.
+  const JOINTS = ['root_R', 'larm_upper', 'larm_lower', 'rarm_upper', 'rarm_lower',
+    'lleg_upper', 'lleg_lower', 'lleg_foot', 'rleg_upper', 'rleg_lower', 'rleg_foot'];
+  function blendPose(f, tr, pose) {
+    // Every joint needs a target; fill in what the rig would otherwise default.
+    tr.root_R ??= eye(); tr.root_T ??= [0, 0, 0];
+    tr.lleg_foot ??= tr.lleg_lower; tr.rleg_foot ??= tr.rleg_lower;
+    if (!f.anim) {
+      f.anim = { R: {}, V: {}, T: tr.root_T.slice(), TV: [0, 0, 0] };
+      for (const j of JOINTS) { f.anim.R[j] = tr[j].slice(); f.anim.V[j] = new Array(9).fill(0); }
+      return;
+    }
+    const striking = !!MOVES[pose];
+    const lowering = f.crouch || f.landing > 0 || f.squat > 0;
+    const omega = striking ? 60 : pose === 'hurt' ? 40 : pose === 'ko' ? 8
+      : f.y > 0 ? 28 : f.action === 'walk' ? 45 : lowering ? 26 : 15;   // rad/s
+    const zeta = striking || f.action === 'walk' ? 1 : 0.75;              // under 1: settles with give
+    // Implicit spring step: stable at any stiffness for a 60 Hz tick.
+    const k = omega * omega, c = 2 * zeta * omega, dt = TICK, den = 1 + dt * c + dt * dt * k;
+    const spring = (x, v, target) => {
+      for (let i = 0; i < x.length; i++) { v[i] = (v[i] + dt * k * (target[i] - x[i])) / den; x[i] += dt * v[i]; }
+    };
+    const a = f.anim;
+    for (const j of JOINTS) { spring(a.R[j], a.V[j], tr[j]); a.R[j] = orthonormal(a.R[j]); tr[j] = a.R[j]; }
+    spring(a.T, a.TV, tr.root_T); tr.root_T = a.T.slice();
+  }
+  // Blending rotation matrices entry by entry drifts off a rotation; pull it back.
+  function orthonormal(m) {
+    let [a0, a1, a2, b0, b1, b2] = m;
+    let l = Math.hypot(a0, a1, a2) || 1; a0 /= l; a1 /= l; a2 /= l;
+    const d = a0 * b0 + a1 * b1 + a2 * b2; b0 -= d * a0; b1 -= d * a1; b2 -= d * a2;
+    l = Math.hypot(b0, b1, b2) || 1; b0 /= l; b1 /= l; b2 /= l;
+    return [a0, a1, a2, b0, b1, b2, a1 * b2 - a2 * b1, a2 * b0 - a0 * b2, a0 * b1 - a1 * b0];
+  }
+
   function body(f, clock) {
     const T = targets(f, clock), P = f.coords, u = f.unfold;
     if (!P) { f.prev = T.map(q => q.slice()); return T; }
@@ -335,6 +377,22 @@
   // ------------------------------------------------------------------- the scene
   let viewer, template;
 
+  // Light: hand-drawn richardson cartoons on white. Dark: solid 3d shading on black.
+  // Dark unless this browser has chosen light before.
+  const THEME_KEY = 'protein-fighter-theme';
+  let theme = (() => {
+    try { if (localStorage.getItem(THEME_KEY) === 'light') return 'light'; } catch {}
+    return 'dark';
+  })();
+  function applyTheme() {
+    document.documentElement.dataset.theme = theme;
+    for (const b of document.querySelectorAll('[data-theme-choice]')) {
+      const on = b.dataset.themeChoice === theme;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', String(on));
+    }
+  }
+
   function pdbText(a, b) {
     let s = '', n = 1;
     for (const [chain, coords] of [['A', a], ['B', b]]) {
@@ -349,7 +407,7 @@
 
   function startViewer(a, b) {
     viewer = window.py2Dmol.show($('stage'), pdbText(a, b), {
-      name: 'arena', style: 'richardson', orient: false, controls: false, play: false,
+      name: 'arena', style: theme === 'dark' ? '3d' : 'richardson', orient: false, controls: false, play: false,
       select: false, box: false, biounit: false,
     });
     viewer.setColor('deepmind');   // AlphaFold DB pLDDT colours, here meaning damage
@@ -755,6 +813,16 @@
   $('one').onclick = () => start(1);
   $('two').onclick = () => start(2);
   $('sound').onclick = () => { sound = !sound; $('sound').textContent = sound ? 'SOUND ON' : 'SOUND OFF'; sfx.block(); };
+  for (const b of document.querySelectorAll('[data-theme-choice]')) {
+    b.onclick = () => {
+      if (b.dataset.themeChoice === theme) return;
+      theme = b.dataset.themeChoice;
+      try { localStorage.setItem(THEME_KEY, theme); } catch {}
+      applyTheme();
+      // py2Dmol paints each style on its own ground, so rebuild the viewer in the new style.
+      startViewer(fighters[0].coords, fighters[1].coords);
+    };
+  }
 
   // ----------------------------------------------------------------------- loop
   let last = performance.now(), acc = 0;
@@ -780,6 +848,7 @@
   }
 
   try {
+    applyTheme();
     resetRound();
     startViewer(fighters[0].coords, fighters[1].coords);
     window.proteinFighter = { get fighters() { return fighters; }, get mode() { return mode; }, camera: CAMERA };   // for poking at from the console

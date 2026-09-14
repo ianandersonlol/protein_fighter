@@ -1,13 +1,26 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Protein Fighter</title>
 <link rel="icon" href="data:,">
 <style>
+  /* Two themes, switched by data-theme on <html> (game.js). Dark sits on the same black
+     as py2Dmol's 3d style, light on the white of its richardson style, so the canvas
+     never shows an edge. */
+  :root {
+    --bg: #000000; --ink: #ece9e2; --panel: #131418; --faint: #ece9e21a; --veil: #000000b3;
+    --floor1: #ece9e208; --floor2: #ece9e214; --grid: #ece9e20d; --edge-far: #ece9e233; --edge-near: #ece9e299;
+    --cap-edge: #ece9e299; --glow: 0 0 18px #000;
+  }
+  :root[data-theme="light"] {
+    --bg: #ffffff; --ink: #1d1b18; --panel: #ffffff; --faint: #ffffff88; --veil: #ffffffcc;
+    --floor1: #1d1b1808; --floor2: #1d1b1814; --grid: #1d1b180d; --edge-far: #1d1b1840; --edge-near: #1d1b18;
+    --cap-edge: #1d1b18; --glow: none;
+  }
   * { box-sizing: border-box; }
-  body { margin: 0; height: 100vh; overflow: hidden; background: #ffffff; color: #1d1b18;
+  body { margin: 0; height: 100vh; overflow: hidden; background: var(--bg); color: var(--ink);
          font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .arena { position: relative; width: 100%; height: 100%; }
   #stage { position: absolute; inset: 0; pointer-events: none; }
@@ -15,17 +28,17 @@
      sits above the feet line and its near edge below, and a foot nearer the camera
      lands lower in it. */
   .floor { position: absolute; left: 0; right: 0; top: 72.9%; bottom: 0; pointer-events: none;
-           background: linear-gradient(#1d1b1808, #1d1b1814 7vh, #0000 7vh),
-                       repeating-linear-gradient(90deg, #0000 0 38px, #1d1b180d 38px 40px); }
-  .floor::before { content: ''; position: absolute; left: 0; right: 0; top: 0; border-top: 1px solid #1d1b1840; }
-  .floor::after { content: ''; position: absolute; left: 0; right: 0; top: 7vh; border-top: 2px solid #1d1b18; }
+           background: linear-gradient(var(--floor1), var(--floor2) 7vh, #0000 7vh),
+                       repeating-linear-gradient(90deg, #0000 0 38px, var(--grid) 38px 40px); }
+  .floor::before { content: ''; position: absolute; left: 0; right: 0; top: 0; border-top: 1px solid var(--edge-far); }
+  .floor::after { content: ''; position: absolute; left: 0; right: 0; top: 7vh; border-top: 2px solid var(--edge-near); }
 
   .hud { position: absolute; top: 18px; left: 24px; right: 24px; display: flex; gap: 24px; align-items: start; z-index: 2; }
   .player { flex: 1; }
   .player b { font-size: 22px; font-style: italic; letter-spacing: -0.5px; }
   .player small { display: block; font-size: 10px; letter-spacing: 1px; opacity: 0.7; margin-top: 4px; }
   /* Health is the average pLDDT; game.js colours the fill with the AlphaFold band. */
-  .bar { height: 16px; border: 2px solid #1d1b18; margin-top: 6px; transform: skewX(-14deg); background: #fff8; }
+  .bar { height: 16px; border: 2px solid var(--ink); margin-top: 6px; transform: skewX(-14deg); background: var(--faint); }
   .bar i { display: block; height: 100%; width: 100%; background: #0d57d3; transition: width 0.12s, background-color 0.3s; }
   .p2 { text-align: right; }
   .p2 .bar i { margin-left: auto; }
@@ -33,37 +46,46 @@
   .timer small { display: block; font-size: 10px; margin-top: 6px; letter-spacing: 1px; }
 
   #impact { position: absolute; top: 34%; transform: translateX(-50%); font-size: 30px; font-weight: 900; font-style: italic;
-            color: #1d1b18; opacity: 0; pointer-events: none; z-index: 3; white-space: nowrap; }
+            color: var(--ink); text-shadow: var(--glow); opacity: 0; pointer-events: none; z-index: 3; white-space: nowrap; }
   #impact.pop { animation: pop 0.45s ease-out; }
   @keyframes pop { 0% { opacity: 1; transform: translateX(-50%) scale(1.5); } 100% { opacity: 0; transform: translate(-50%, -30px) scale(1); } }
 
   #overlay { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: 12px;
-             background: #ffffffcc; z-index: 4; padding-inline: 16px; }
+             background: var(--veil); z-index: 4; padding-inline: 16px; }
   #overlay[hidden] { display: none; }
   #overlay h1 { margin: 0; font-size: clamp(32px, 7vw, 72px); font-style: italic; letter-spacing: -2px; }
   #overlay p { margin: 0; }
   #modes button + button { margin-left: 8px; }
-  button { font: inherit; cursor: pointer; border: 2px solid #1d1b18; background: #1d1b18; color: #ffffff; padding: 10px 22px; letter-spacing: 1px; }
+  button { font: inherit; cursor: pointer; border: 2px solid var(--ink); background: var(--ink); color: var(--bg); padding: 10px 22px; letter-spacing: 1px; }
   button:disabled { opacity: 0.5; cursor: wait; }
-  kbd { border: 1px solid #1d1b18; padding: 0 4px; }
+  kbd { border: 1px solid var(--ink); padding: 0 4px; }
 
   /* Controls: P1 on the left of the keyboard, P2 on the right. */
   .pad { position: absolute; bottom: 30px; z-index: 5; display: grid; gap: 5px; font-size: 10px; letter-spacing: 0.5px; }
+  .pad[hidden] { display: none; }
   .pad .who { font-size: 12px; font-style: italic; }
   .pad .row { display: flex; gap: 10px; align-items: end; }
   .pad p { margin: 0; opacity: 0.6; }
-  .pad[hidden] { display: none; }
   .left { left: 24px; justify-items: start; }
   .right { right: 24px; justify-items: end; text-align: right; }
   .dirs { display: grid; grid-template-areas: ". u ." "l d r"; gap: 4px; }
   .hits { display: flex; gap: 4px; }
   .cap { width: 46px; height: 42px; padding: 0; display: grid; place-content: center; gap: 1px; letter-spacing: 0;
-         background: #fff; color: #1d1b18; border: 2px solid #1d1b18; border-bottom-width: 4px; border-radius: 4px;
+         background: var(--panel); color: var(--ink); border: 2px solid var(--cap-edge); border-bottom-width: 4px; border-radius: 4px;
          touch-action: none; user-select: none; -webkit-user-select: none; }
   .cap b { font-size: 15px; line-height: 1; }
   .cap small { font-size: 8px; text-transform: uppercase; opacity: 0.6; }
-  .cap.down { background: #1d1b18; color: #fff; border-bottom-width: 2px; transform: translateY(2px); }
-  #sound { background: none; color: inherit; border: 0; padding: 0; font-size: 10px; letter-spacing: 0.5px; text-decoration: underline; }
+  .cap.down { background: var(--ink); color: var(--bg); border-color: var(--ink); border-bottom-width: 2px; transform: translateY(2px); }
+  .link { background: none; color: inherit; border: 0; padding: 0; font-size: 10px; letter-spacing: 0.5px; text-decoration: underline; }
+  .link:focus:not(:focus-visible) { outline: none; }
+  /* A two-button switch under the timer; the current theme is filled in. */
+  .theme-switch { position: absolute; top: 94px; left: 50%; transform: translateX(-50%); z-index: 6; display: flex;
+                  border: 2px solid var(--ink); border-radius: 999px; overflow: hidden; }
+  .theme-switch button { background: transparent; color: var(--ink); border: 0; padding: 5px 12px; font-size: 11px;
+                         letter-spacing: 1px; white-space: nowrap; }
+  .theme-switch button.on { background: var(--ink); color: var(--bg); }
+  .theme-switch button:not(.on):hover { background: var(--faint); }
+  .theme-switch button:focus:not(:focus-visible) { outline: none; }
   .credit { position: absolute; left: 0; right: 0; bottom: 8px; z-index: 5; text-align: center; font-size: 12px;
             letter-spacing: 0.5px; opacity: 0.55; pointer-events: none; }
   @media (pointer: coarse) {
@@ -76,7 +98,7 @@
     .right { right: 8px; }
     .pad .row { flex-direction: column; align-items: inherit; }
     .pad p { display: none; }
-    .credit { bottom: auto; top: 96px; }
+    .credit { bottom: auto; top: 132px; }
   }
 
   .arena.shake { animation: shake 0.22s linear; }
@@ -97,6 +119,11 @@
     <div class="player"><b>P1</b><small><span id="fold0">pLDDT 100</span> · <span id="wins0">○ ○</span></small><div class="bar"><i id="hp0"></i></div></div>
     <div class="timer"><span id="timer">99</span><small id="round">ROUND 01</small></div>
     <div class="player p2"><b id="name1">P2</b><small><span id="wins1">○ ○</span> · <span id="fold1">pLDDT 100</span></small><div class="bar"><i id="hp1"></i></div></div>
+  </div>
+
+  <!-- Theme switch: under the timer, above the title screen too -->
+  <div class="theme-switch" role="group" aria-label="Colour theme">
+    <button data-theme-choice="dark" tabindex="-1" aria-pressed="true" class="on">☾ DARK</button><button data-theme-choice="light" tabindex="-1" aria-pressed="false">☀ LIGHT</button>
   </div>
 
   <div id="impact"></div>
@@ -122,7 +149,8 @@
         <button class="cap" data-key="g" tabindex="-1"><b>G</b><small>kick</small></button>
       </div>
     </div>
-    <p>hold back to block · double-tap to run · crouch or jump to change an attack · <kbd>Esc</kbd> pause · <button id="sound" tabindex="-1">SOUND ON</button></p>
+    <p>hold back to block · double-tap to run · crouch or jump to change an attack · <kbd>Esc</kbd> pause ·
+      <button class="link" id="sound" tabindex="-1">SOUND ON</button></p>
   </div>
 
   <!-- P2's keys, shown only in a two-player game -->
