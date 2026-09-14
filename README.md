@@ -67,15 +67,13 @@ Playing the CPU, both sets drive P1, and J / K punch and kick as well.
   unfolding, a shove back and a short brace. A low attack gets under a standing guard, so
   block it crouching; an attack from the air comes over a crouching guard, so block it
   standing. The CPU braces now and then too
-- Throw: forward and punch with the two torsos touching. It can't be blocked: the other
-  is lifted over your head and flung, tumbling, and the damage lands when it does
 - Heat shock: punch and kick together. A wave runs out along the membrane from your
   hands, flinging ligands, and unfolds what it reaches; it runs low, so it is blocked
   crouching. Once every four seconds
 - Hits in a row while the other is still reeling count up as a combo, each with its
   damage; the CPU on HARD blocks most of what it sees coming, hits back while you are
-  recovering, kicks you out of the air and throws you up close, so a strike thrown over
-  and over is a bad idea. EASY and NORMAL are gentler
+  recovering and kicks you out of the air, so a strike thrown over and over is a bad
+  idea. EASY and NORMAL are gentler
 - Under the title screen each player picks BARREL or BUNDLE, and a guest picks its own
 - Punch and kick change with what you are doing. Crouching they become low attacks,
   which unfold only the legs. In the air they hit from above. Pressing jump and an

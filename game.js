@@ -33,6 +33,7 @@
     special:  { duration: 0.75, active: 0.18, window: 0.32, damage: 9,  stun: 0.4,  push: 220, fist: 'wave',      text: 'HEAT SHOCK', low: true, wave: true, reach: 300, again: 4 },
   };
   const GRAB = 34;            // Å between torsos, as drawn, within which a throw takes hold
+  const THROWS = false;       // the throw is switched off for now: it needs more work before it is worth having
   const REACH = 13;           // Å from striking residues to any defender residue
   const REFOLD = 0.02, REFOLD_DELAY = 2;   // unfolding recovered per residue per second, after this long unhit
   const DAMAGE_SCALE = 0.55;               // every hit softened, so a round takes about twice as many
@@ -669,7 +670,7 @@
       if (free && gap > 90 && gap < 160 && Math.random() < L.jump) { c.squat = SQUAT; c.jumpDir = toward; c.upReleased = false; }
       else if (free && gap < 75 && Math.random() < L.attack) {
         const r = Math.random();
-        if (gap < 48 && p.y === 0 && r < 0.3) attack(c, 'throw');
+        if (THROWS && gap < 48 && p.y === 0 && r < 0.3) attack(c, 'throw');
         else if (gap > 70 && gap < 200 && p.y === 0 && r < L.special) attack(c, 'special');
         else attack(c, r < 0.4 ? 'punch' : r < 0.7 ? 'kick' : r < 0.85 ? 'lowkick' : 'lowpunch');
       }
@@ -689,7 +690,7 @@
     const free = c.stun <= 0 && c.blockStun <= 0 && !MOVES[c.action] && c.action !== 'thrown' && c.y === 0 && !c.squat;
     if (free && pm && !pm.air && p.t > pm.active + pm.window && gap < 80 && Math.random() < L.punish) {
       c.crouch = false;
-      attack(c, gap < 48 ? 'throw' : Math.random() < 0.5 ? 'kick' : 'punch');
+      attack(c, THROWS && gap < 48 ? 'throw' : Math.random() < 0.5 ? 'kick' : 'punch');
     } else if (free && p.y > 25 && gap < 95 && (p.vx * toward < 0 || Math.abs(p.vx) < 30) && Math.random() < L.antiair) {
       c.crouch = false; attack(c, 'kick');
     }
@@ -1319,7 +1320,7 @@
     // The other attack key within a twelfth of a second of the first: the heat shock.
     if (f.y === 0 && MOVES[f.action] && !MOVES[f.action].wave && f.t < 0.09 && f.action.endsWith(kind === 'punch' ? 'kick' : 'punch')) return attack(f, 'special');
     const o = fighters[1 - i], forward = f.facing > 0 ? 'right' : 'left';
-    if (kind === 'punch' && f.y === 0 && !h.has('down') && h.has(forward) && o.y === 0 && barrelGap(f, o) < GRAB) return attack(f, 'throw');
+    if (THROWS && kind === 'punch' && f.y === 0 && !h.has('down') && h.has(forward) && o.y === 0 && barrelGap(f, o) < GRAB) return attack(f, 'throw');
     attack(f, f.y > 0 ? 'air' + kind : h.has('down') ? 'low' + kind : kind);
   }
   function jumpCancel(i) {

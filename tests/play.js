@@ -1,7 +1,7 @@
 // Plays the game headless and checks it holds together: serves the folder, opens it in
 // headless Chrome over the DevTools protocol, starts a one-player fight against the CPU
-// on hard, and drives P1 through a walk, a block, punches, kicks, a heat shock, a throw
-// attempt and a PAE click, watching for exceptions and for the moves to register.
+// on hard, and drives P1 through a walk, a block, punches, kicks, a heat shock and a PAE
+// click, watching for exceptions and for the moves to register.
 //
 //     node tests/play.js            one player against the CPU
 //     node tests/play.js --remote   a host and a guest in two browsers, over PeerJS
