@@ -1464,7 +1464,10 @@
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     let moved = false;
-    if (hitstop > 0) hitstop -= dt;
+    // The freeze on a landed blow: the fighters hold, but the picture goes on being
+    // drawn, so the sparks fly and the camera's knock plays through the freeze. Drawn
+    // as a still it read as the game stalling, worst on the drop kick, the longest one.
+    if (hitstop > 0) { hitstop -= dt; frameCamera(dt); moved = true; }
     else if (phase !== 'paused') {
       // Fixed 60 Hz steps whatever the display rate, and a redraw only when something
       // stepped: py2Dmol rebuilds the whole cartoon on every draw, so a 120 Hz screen
