@@ -60,6 +60,11 @@
     }
   }
   function ripple(x, size) { ripples.push({ x, age: 0, size }); }
+  // The heat shock's front: a burst of hot sparks off the floor where the wave is, and a ring.
+  function wave(x, dir) {
+    ripples.push({ x, age: 0.15, size: 1.3 });
+    for (let i = 0; i < 6; i++) sparks.push({ x: x + (Math.random() - 0.5) * 12, y: 1, z: (Math.random() - 0.5) * 24, vx: dir * (40 + Math.random() * 80), vy: 90 + Math.random() * 160, vz: (Math.random() - 0.5) * 40, age: 0, life: 0.3 + Math.random() * 0.25, r: 1.4 + Math.random() * 1.6, kind: 'hit' });
+  }
 
   function drawFx(canvas, { project, scale, theme, dt, bodies }) {
     const W = canvas.clientWidth, H = canvas.clientHeight, dpr = Math.min(1.5, devicePixelRatio || 1);
@@ -169,5 +174,5 @@
     ctx.fillStyle = veil; ctx.fillRect(0, 0, W, H * 0.24);
   }
 
-  window.Cell = { draw, spark, ripple };
+  window.Cell = { draw, spark, ripple, wave };
 })();

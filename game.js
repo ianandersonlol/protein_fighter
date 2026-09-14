@@ -28,6 +28,9 @@
     airkick:  { duration: 0.40, active: 0.08, window: 0.22, damage: 10, stun: 0.26, push: 180, fist: 'rleg_foot', text: 'DROP KICK', air: true, overhead: true },
     // Forward + punch up close: a grab, unblockable, that lifts the other and flings it.
     throw:    { duration: 0.95, active: 0.14, window: 0.04, damage: 12, stun: 0.5,  push: 380, fist: 'rarm',      text: 'THROW', throw: true, hold: 0.38 },
+    // Punch and kick together: a heat shock, a wave along the membrane from the hands
+    // that unfolds what it reaches. It runs low, so it is blocked crouching. Once in a while.
+    special:  { duration: 0.75, active: 0.18, window: 0.32, damage: 9,  stun: 0.4,  push: 220, fist: 'wave',      text: 'HEAT SHOCK', low: true, wave: true, reach: 300, again: 4 },
   };
   const GRAB = 34;            // Å between torsos, as drawn, within which a throw takes hold
   const REACH = 13;           // Å from striking residues to any defender residue
@@ -111,6 +114,7 @@
       jit: 5,
       settle: 0,                     // 1 → 0 while a new round's body gathers itself up
       action: 'idle', t: 0, hit: false, stun: 0, cooldown: 0,
+      specialAt: -9,                 // when the last heat shock went out (clock)
       blockStun: 0,                  // braced behind a block, briefly unable to act
       blockHold: 0,                  // the CPU holding back to block, for this long
       unfold: new Float32Array(N),   // 0 folded … 1 denatured, per residue
@@ -122,8 +126,9 @@
 
   function attack(f, move) {
     const m = MOVES[move];
-    if (!m || f.stun > 0 || f.blockStun > 0 || MOVES[f.action] || f.action === 'thrown' || f.cooldown > 0) return false;
+    if (!m || f.stun > 0 || f.blockStun > 0 || (MOVES[f.action] && !(m.wave && f.t < 0.09)) || f.action === 'thrown' || (f.cooldown > 0 && !m.wave)) return false;
     if (!!m.air !== f.y > 0) return false;
+    if (m.wave) { if (f.y > 0 || clock - f.specialAt < m.again) return false; f.specialAt = clock; sfx.shock(); }
     Object.assign(f, { action: move, t: 0, hit: false, cooldown: m.duration });
     f.fatigue = Math.min(1, f.fatigue + 0.12);
     return true;
@@ -262,7 +267,7 @@
 
   // The striking end of the limb (see makeForm), where it is now.
   function strikePoints(f, move) {
-    const c = f.coords, idx = MOVES[move].fist === 'rarm' ? f.form.fist : f.form.kick;
+    const c = f.coords, idx = MOVES[move].fist === 'rarm' ? f.form.fist : MOVES[move].fist === 'wave' ? [] : f.form.kick;
     return idx.map(i => c[i]);
   }
 
@@ -640,9 +645,9 @@
   // punish: seeing the player's move in its recovery, the chance each tick to hit back;
   // antiair: seeing the player jump in, the chance each tick to kick them out of the air.
   const LEVELS = {
-    easy:   { think: [0.7, 0.6], attack: 0.25, jump: 0.1, air: 0.04, block: 0.006, punish: 0.01, antiair: 0.005, chase: 0.35 },
-    normal: { think: [0.4, 0.4], attack: 0.45, jump: 0.2, air: 0.1,  block: 0.02,  punish: 0.05, antiair: 0.03,  chase: 0.5 },
-    hard:   { think: [0.15, 0.2], attack: 0.8, jump: 0.3, air: 0.2,  block: 0.35,  punish: 0.6,  antiair: 0.25,  chase: 0.8 },
+    easy:   { think: [0.7, 0.6], attack: 0.25, jump: 0.1, air: 0.04, block: 0.006, punish: 0.01, antiair: 0.005, chase: 0.35, special: 0.05 },
+    normal: { think: [0.4, 0.4], attack: 0.45, jump: 0.2, air: 0.1,  block: 0.02,  punish: 0.05, antiair: 0.03,  chase: 0.5,  special: 0.12 },
+    hard:   { think: [0.15, 0.2], attack: 0.8, jump: 0.3, air: 0.2,  block: 0.35,  punish: 0.6,  antiair: 0.25,  chase: 0.8,  special: 0.25 },
   };
   const LEVEL_KEY = 'protein-fighter-cpu';
   let level = (() => { try { const v = localStorage.getItem(LEVEL_KEY); if (LEVELS[v]) return v; } catch {} return 'normal'; })();
@@ -665,6 +670,7 @@
       else if (free && gap < 75 && Math.random() < L.attack) {
         const r = Math.random();
         if (gap < 48 && p.y === 0 && r < 0.3) attack(c, 'throw');
+        else if (gap > 70 && gap < 200 && p.y === 0 && r < L.special) attack(c, 'special');
         else attack(c, r < 0.4 ? 'punch' : r < 0.7 ? 'kick' : r < 0.85 ? 'lowkick' : 'lowpunch');
       }
     }
@@ -774,6 +780,7 @@
     if (mode === 2 || mode === 3) control(c, held[1], dt);
     else cpu(c, p, dt);
     for (const f of fighters) if (f.action === 'thrown' && f.heldBy != null) holdThrown(f);
+    for (const f of fighters) if (f.action === 'special') { const w = waveAt(f); if (w != null && (net.seq & 1) === 0) window.Cell?.wave(w, f.facing); }
 
     keepTogether();
 
@@ -791,6 +798,15 @@
       // Live from most of the way out, so a strike thrown point-blank lands where it meets
       // the body instead of passing through it before the active frame.
       if (!m || a.hit || a.t < m.active * 0.6 || b.hp === 0) return;
+      if (m.wave) {   // the shock wave: reaching the other, low along the floor
+        const w = waveAt(a);
+        if (w == null || Math.abs(w - barrelX(b)) > 24 || b.y > 30) return;
+        const at = b.coords[b.form.mid].slice(); at[1] = Math.min(at[1], 30);
+        const power = strikePower(a, 'special');
+        if (canBlock(b, 1 - i, m)) { blockHit(i, 'special', at, power); netEvent('block', i, 'special', at, power); flash(at, 'BLOCK'); sfx.block(); return; }
+        landHit(i, 'special', at, power); netEvent('hit', i, 'special', at, power); flash(at, m.text); sfx.hit(m.damage * power / 13);
+        return;
+      }
       if (m.throw) {   // a grab: the other must be on the ground and against this one
         if (a.t < m.active) return;
         if (b.y === 0 && b.action !== 'thrown' && barrelGap(a, b) < GRAB) { grab(i); netEvent('throw', i); flash(b.coords[b.form.mid], m.text); sfx.grab(); }
@@ -846,6 +862,13 @@
     hitstop = 0.03;
     window.Cell?.spark(at, a.facing, m.damage * power * 0.5, 'block');
     CAMERA.shake = Math.min(3, 0.8 + m.damage * power * 0.15);
+  }
+
+  // Where the heat shock's wave is now: from the hands out along the floor over its
+  // window, or nowhere.
+  function waveAt(a) {
+    const m = MOVES.special, u = (a.t - m.active) / m.window;
+    return u < 0 || u > 1 ? null : a.x + a.facing * (22 + m.reach * u);
   }
 
   // The throw. Taking hold: the other stops what it is doing and is carried. Then, over
@@ -1232,6 +1255,7 @@
       noise(0.5, 5000, 300, { gain: 0.2, delay: 0.36 });
     },
     grab() { noise(0.12, 800, 3000, { gain: 0.2, filter: 'bandpass' }); tone(300, 90, 0.18, { type: 'triangle', gain: 0.15 }); },
+    shock() { tone(80, 400, 0.5, { type: 'sawtooth', gain: 0.2 }); noise(0.6, 200, 2500, { gain: 0.25, filter: 'bandpass' }); tone(45, 30, 0.7, { gain: 0.4 }); },
     denatured() {   // the announcer: three low, rough syllables, DE-NA-TURED, and a hit under the last
       for (const [f0, f1, dur, delay, g] of [[112, 84, 0.22, 0, 0.5], [100, 78, 0.22, 0.26, 0.5], [92, 46, 0.7, 0.52, 0.6]]) {
         tone(f0, f1, dur, { type: 'sawtooth', gain: g * 0.55, delay });
@@ -1276,6 +1300,8 @@
   function strike(i, kind) {
     const f = fighters[i], h = held[i];
     if (f.y === 0 && (h.has('up') || f.squat > 0)) { f.queued = { move: 'air' + kind, until: clock + BUFFER }; return; }
+    // The other attack key within a twelfth of a second of the first: the heat shock.
+    if (f.y === 0 && MOVES[f.action] && !MOVES[f.action].wave && f.t < 0.09 && f.action.endsWith(kind === 'punch' ? 'kick' : 'punch')) return attack(f, 'special');
     const o = fighters[1 - i], forward = f.facing > 0 ? 'right' : 'left';
     if (kind === 'punch' && f.y === 0 && !h.has('down') && h.has(forward) && o.y === 0 && barrelGap(f, o) < GRAB) return attack(f, 'throw');
     attack(f, f.y > 0 ? 'air' + kind : h.has('down') ? 'low' + kind : kind);
@@ -1448,7 +1474,7 @@
   // last packet (hits, callouts, the finisher, sounds). The unfolding travels only when
   // it changed. About 2 KB a packet.
   const SNAP = ['x', 'y', 'vx', 'vy', 'facing', 'hp', 'crouch', 'sinceHit', 'squat', 'jumpDir', 'upReleased', 'landing', 'landPower',
-    'fatigue', 'jit', 'settle', 'action', 't', 'hit', 'stun', 'cooldown', 'limp', 'seed', 'lastLow', 'blockStun', 'blockHold', 'heldBy', 'combo', 'comboAir'];
+    'fatigue', 'jit', 'settle', 'action', 't', 'hit', 'stun', 'cooldown', 'limp', 'seed', 'lastLow', 'blockStun', 'blockHold', 'heldBy', 'combo', 'comboAir', 'specialAt'];
   // What a guest keeps its own for the fighter it drives: its keys have already moved
   // it, and the host's word on where it was a moment ago would only drag it back.
   const OWN = new Set(['y', 'vy', 'crouch', 'squat', 'jumpDir', 'upReleased', 'landing', 'landPower', 'action', 't']);

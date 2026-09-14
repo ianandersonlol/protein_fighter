@@ -199,6 +199,11 @@
         T.legs.r = [0.45 + kr * s * 0.3, -1.2 + kr * s * 2.1, kr * s * 0.9];
         T.pitch = kr * s * 0.35;
         T.larmU = -0.3; T.rarmU = -1.2;
+      } else if (pose === 'special') {
+        // The heat shock: a half crouch, both arms driven forward and down to the floor as
+        // the wave goes out, the torso leaning into it, then back up.
+        T.low = 0.55 * s; T.pitch = 0.45 * s; T.fwd = 6 * s; T.head = 0.2 * s;
+        T.larmU = T.rarmU = -0.65 + 0.85 * s; T.larmL = T.rarmL = 1.1 * (1 - s);
       } else if (pose === 'throw') {
         // Reach out with both arms, take hold, heave up and over the head, and follow
         // through: the torso leans back under the weight, then forward as it lets go.
