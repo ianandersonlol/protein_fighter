@@ -1,6 +1,6 @@
 // The inside of a cell, behind the fight: a 2D canvas under the proteins, drawn in world
 // units so it scrolls and zooms with the camera. The floor the fighters stand on is a
-// lipid bilayer and another arches overhead; between them vesicles and a mitochondrion
+// lipid bilayer, seen in section below their feet; above it vesicles and a mitochondrion
 // drift past at different depths (the deeper, the slower they pass), ribosomes are
 // scattered through, and microtubules run far back. Nothing here touches the game.
 (function () {
@@ -60,7 +60,7 @@
     const g = ctx.createLinearGradient(0, 0, 0, H);
     g.addColorStop(0, P.cyto[1]); g.addColorStop(0.45, P.cyto[0]); g.addColorStop(1, P.cyto[2]);
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-    const top = H * 0.07;   // the membrane overhead
+    const top = H * 0.2;   // the cytoplasm starts below the HUD
     // Below the floor's near edge the cell wall in section: a darker (or paler) strip.
     ctx.fillStyle = dark ? 'rgba(20,40,70,0.35)' : 'rgba(160,190,225,0.25)';
     ctx.fillRect(0, floorFar + floorDepth, W, H - floorFar - floorDepth);
@@ -108,11 +108,15 @@
       ctx.beginPath(); ctx.arc(x, y, rr, 0, TAU); ctx.fill();
     });
 
-    // The membranes: one overhead, waving a little, and the one they stand on. The floor
-    // band is that membrane's top surface, seen from above; its bilayer shows in section
-    // along the band's near edge, below the feet, so the feet stay clear against the band.
-    bilayer(ctx, top, W, scale, camX * 0.9, P.membrane, dark ? 0.45 : 0.5, true, t);
+    // The membrane they stand on: the floor band is its top surface, seen from above, and
+    // its bilayer shows in section along the band's near edge, below the feet, so the
+    // feet stay clear against the band.
     bilayer(ctx, floorFar + floorDepth + 11 * scale, W, scale, camX, P.membrane, dark ? 0.4 : 0.45, false, t);
+    // The HUD's ground: the top of the picture fades to the page's own colour, so names,
+    // bars and maps sit on something plain.
+    const veil = ctx.createLinearGradient(0, 0, 0, H * 0.24);
+    veil.addColorStop(0, dark ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.9)'); veil.addColorStop(0.7, dark ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.6)'); veil.addColorStop(1, dark ? 'rgba(0,0,0,0)' : 'rgba(255,255,255,0)');
+    ctx.fillStyle = veil; ctx.fillRect(0, 0, W, H * 0.24);
   }
 
   window.Cell = { draw };
