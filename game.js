@@ -533,7 +533,7 @@
   let mode = 1;                           // 1: you vs the CPU · 2: two players, one keyboard · 3: a remote challenger (net.js)
   // Remote play. Hosting: `link` streams state to the guest, who drives P2 through held[1].
   // A guest page (?join=…) runs no game of its own: it draws the host's state and sends keys.
-  const net = { link: null, guest: !!window.Net?.joinId(), events: [], seq: 0, lastUnfold: null, pkts: 0, bytes: 0, tick: 0 };
+  const net = { link: null, guest: !!window.Net?.joinId(), watch: !!window.Net?.watching(), events: [], seq: 0, lastUnfold: null, pkts: 0, bytes: 0, tick: 0, rtt: 0, dropped: false, watchers: 0 };
   const netEvent = (...e) => { if (net.link) net.events.push(e); };
   let fighters, wins = [0, 0], round = 1, time = 60, phase = 'ready', clock = 0, koTimer = 0, ai = 0, hitstop = 0;
   const names = () => ['P1', 'P2'];   // the CPU is P2 too
@@ -1463,7 +1463,8 @@
     const secs = (now - net.tick) / 1000; net.tick = now;
     const n = net.guest ? net.pkts : (net.tx || 0) - (net.txLast || 0); net.txLast = net.tx || 0;
     const st = window.Net.status();
-    const line = `${net.guest ? 'guest' : 'host'} · ${(n / secs).toFixed(0)} pkt/s · ${(net.bytes / secs / 1024).toFixed(0)} KB/s · ${st ? (st.open ? 'link ' + st.ice : 'no link') : 'no link'}${st && st.queued > 8192 ? ' · queued ' + (st.queued / 1024 | 0) + ' KB' : ''}`;
+    const rtt = net.guest ? window.Net.rtt() : net.rtt;
+    const line = `${net.watch ? 'watching' : net.guest ? 'guest' : 'host'} · ${(n / secs).toFixed(0)} pkt/s · ${(net.bytes / secs / 1024).toFixed(0)} KB/s · ${st ? (st.open ? 'link ' + st.ice : 'no link') : 'no link'}${rtt ? ' · ' + rtt + ' ms' : ''}${net.watchers ? ' · ' + net.watchers + ' watching' : ''}${st && st.queued > 8192 ? ' · queued ' + (st.queued / 1024 | 0) + ' KB' : ''}`;
     net.pkts = 0; net.bytes = 0;
     setText('netstat', line);
   }
@@ -1534,7 +1535,8 @@
     const was = phase;
     phase = h.ph; time = h.t; round = h.r; wins = h.w; koTimer = h.k; hitstop = h.hs;
     held[0] = new Set(h.held[0]);   // the host's keys drive P1 here too, between packets
-    fighters.forEach((f, j) => unsnap(f, h.f[j], j === 1));
+    if (net.watch) held[1] = new Set(h.held[1]);
+    fighters.forEach((f, j) => unsnap(f, h.f[j], j === 1 && !net.watch));
     if (u) { const bytes = u instanceof Uint8Array ? u : new Uint8Array(u); let k = 0; for (const f of fighters) for (let i = 0; i < f.form.n; i++) f.unfold[i] = bytes[k++] / 255; }
     if (phase === 'ko' && was !== 'ko') for (const f of fighters) if (f.hp === 0 && !f.koWave) denature(f);
     if (phase !== 'ko' && phase !== 'over') for (const f of fighters) { f.koWave = f.koLoose = null; }
@@ -1546,6 +1548,7 @@
   // as held or released. The guest is always P2.
   function guestPress(k) {
     startMusic();
+    if (net.watch) return;
     if (k === 'escape') return net.send?.({ t: 'in', a: 'escape' });
     const r = route(k);
     if (!r) return;
@@ -1570,10 +1573,19 @@
     overlay('REMOTE', 'Getting a code…', null);
     $('modes').hidden = true; $('qr').hidden = false; $('qr').innerHTML = '';
     net.link = window.Net.host({
-      onLink: link => { $('msg').textContent = 'scan, or send the link'; $('joinlink').value = link; $('joinbox').hidden = false; if (!window.Net.showQR($('qr'), link)) $('qr').hidden = true; $('title').textContent = 'SCAN TO JOIN'; },
-      onGuest: () => { $('qr').hidden = true; $('modes').hidden = false; start(3); },
+      onLink: link => { $('msg').textContent = 'scan to fight, or send the link; with &watch=1 on the end it only watches'; $('joinlink').value = link; $('joinbox').hidden = false; if (!window.Net.showQR($('qr'), link)) $('qr').hidden = true; $('title').textContent = 'SCAN TO JOIN'; },
+      // The challenger is in: a fresh match, or, back after a drop, the match resumes where
+      // it stopped (the reset the newcomer gets rebuilds its fighters; the packets set them).
+      onGuest: () => {
+        $('qr').hidden = true; $('modes').hidden = false;
+        if (phase === 'ready') return start(3);
+        net.events.push(['reset', pick.slice()]);
+        if (net.dropped) { net.dropped = false; if (phase === 'paused') { phase = 'playing'; $('overlay').hidden = true; startMusic(); } }
+      },
+      onWatcher: n => { net.watchers = n; },
+      onPing: rtt => { net.rtt = rtt; },
       onInput: hostInput,
-      onClose: () => { held[1].clear(); if (phase === 'playing') { phase = 'paused'; duckMusic(0.08); } overlay('CHALLENGER LEFT', '', 'MENU'); $('go').onclick = () => { $('go').onclick = () => start(); window.Net.stop(); net.link = null; phase = 'ready'; mode = 1; overlay('', '', null); }; },
+      onClose: () => { held[1].clear(); net.dropped = true; if (phase === 'playing') { phase = 'paused'; duckMusic(0.08); } overlay('CHALLENGER LEFT', 'waiting for them to come back; the same link works', 'MENU'); $('go').onclick = () => { $('go').onclick = () => start(); window.Net.stop(); net.link = null; net.dropped = false; phase = 'ready'; mode = 1; overlay('', '', null); }; },
       onError: msg => { window.Net.stop(); net.link = null; mode = 3; overlay('NO CONNECTION', msg + ' Press START to try again.', null); },
     });
     if (!net.link) { $('modes').hidden = false; $('qr').hidden = true; }
@@ -1590,16 +1602,22 @@
   $('joinlink').onclick = copyLink;
   $('copylink').onclick = copyLink;
 
-  function joinRemote(id) {
+  // A guest joins as the player, a watcher only watches. A dropped link is tried again
+  // every few seconds; the host keeps the match waiting.
+  function joinRemote(id, again = false) {
     $('modes').hidden = true; $('go').hidden = true;
-    overlay('CONNECTING', 'to the host…', null); $('modes').hidden = true;
-    document.querySelector('.pad.left .who').textContent = 'YOU';
-    document.querySelector('.picks').hidden = false; document.querySelector('.pick[data-player="0"]').hidden = true;   // a guest picks only its own
+    overlay(again ? 'RECONNECTING' : 'CONNECTING', again ? 'the link dropped; trying again…' : 'to the host…', null); $('modes').hidden = true;
+    if (net.watch) { for (const el of document.querySelectorAll('.pad')) el.hidden = true; }
+    else {
+      document.querySelector('.pad.left .who').textContent = 'YOU';
+      document.querySelector('.picks').hidden = false; document.querySelector('.pick[data-player="0"]').hidden = true;   // a guest picks only its own
+    }
     mode = 3;   // P2 by the guest's own keys, P1 by the host's, as relayed
     const link = window.Net.join(id, {
-      onOpen: () => { $('title').textContent = 'CONNECTED'; $('msg').textContent = 'waiting for the host'; },
+      role: net.watch ? 'watch' : 'player',
+      onOpen: () => { $('title').textContent = net.watch ? 'WATCHING' : 'CONNECTED'; $('msg').textContent = 'waiting for the host'; },
       onState: applyState,
-      onClose: () => { overlay('DISCONNECTED', '', 'RELOAD'); $('go').hidden = false; $('go').onclick = () => location.reload(); },
+      onClose: () => { net.send = null; setTimeout(() => joinRemote(id, true), 3000); },
       onError: msg => { overlay('NO CONNECTION', msg, 'RETRY'); $('go').hidden = false; $('go').onclick = () => location.reload(); },
     });
     net.send = link ? link.send : null;
