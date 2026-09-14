@@ -124,6 +124,9 @@
     // wide enough that crouching (the front foot rests 12.5 Å further forward) kneels in
     // place rather than shuffling.
     const STEP_TOL = 14, STEP_TIME = 0.2, STEP_LIFT = 5;
+    const ROLL_CENTRE = 19;   // Å: the barrel's centre above the membrane while it rolls on its side
+    // ...and where the torso's centre is from the pelvis (measured on both rigs: 15 up, 6 forward).
+    const TORSO_UP = 15, TORSO_FWD = 6.4;
     const SKID = 60;   // Å/s: shoved faster than this, planted feet skid along with the body
 
     // ------------------------------------------------------------------ springs
@@ -224,6 +227,19 @@
         T.legs.r = [0.45 + kr * s * 0.3, -1.2 + kr * s * 2.1, kr * s * 0.9];
         T.pitch = kr * s * 0.35;
         T.larmU = -0.3; T.rarmU = -1.2;
+      } else if (pose === 'roll') {
+        // The barrel roll, about the barrel's own axis: it drops onto its side so the axis
+        // lies across the screen's depth, legs straight along the axis and arms folded in,
+        // and spins about that axis as it travels - a wheel seen face on - then stands back
+        // up. The tip and the spin are applied below, not sprung: they must come round
+        // exactly. `tuck` is the lie-down, 0 standing … 1 flat; `roll` the spin.
+        const m = MOVES.roll, u = clamp01((f.t - m.active) / m.window), tuck = ease(f.t / m.active) * (1 - ease((f.t - m.active - m.window) / 0.2));
+        T.head = 0; T.pitch = 0;
+        // Arms straight down the body and legs straight: everything along the axis, so the
+        // wheel is round (folded across the chest, the arms were a lump that made it wobble).
+        T.larmU = T.rarmU = lerp(-0.65, -1.5, tuck); T.larmL = T.rarmL = lerp(1.05, -1.5, tuck);   // both lifts: the forearm's is absolute, not off the upper arm
+        T.legs = { l: [0, 0, -1.5 * tuck], r: [0, 0, -1.5 * tuck] };   // feet pointed down the leg, not out
+        T.tip = Math.PI / 2 * tuck; T.roll = 2 * 2 * Math.PI * ease(u); T.tuck = tuck;
       } else if (pose === 'special') {
         // The heat shock: a half crouch, both arms driven forward and down to the floor as
         // the wave goes out, the torso leaning into it, then back up.
@@ -392,7 +408,10 @@
       // it, and ride up again over the standing leg, twice a stride. A dip only, never a
       // rise, so the standing leg is never asked to reach further than it is long.
       const bob = walking ? 3 * (1 + Math.cos(4 * Math.PI * (M.phase - U_STRIKE))) / 2 : 0;
-      const hipTarget = air ? ANKLE_Y + hipHeight(0)
+      // Lying on its side for the barrel roll, the barrel's centre (15 Å up the body from the
+      // pelvis, and 6 forward of it) sits a barrel's radius above the membrane; the pelvis
+      // follows from that.
+      const hipTarget = T.tuck ? lerp(ANKLE_Y + hipHeight(0), ROLL_CENTRE - TORSO_UP, T.tuck) : air ? ANKLE_Y + hipHeight(0)
         : walking ? walkHip - (hipHeight(0) - hipHeight(low)) - hipDrop - bob
         : ANKLE_Y + hipHeight(low) - bend - hipDrop;
       const hy = (air ? f.y : 0) + spring(M, 'hipY', hipTarget, air ? 20 : 60, dt);
@@ -501,6 +520,18 @@
       for (const q of p) {
         const x = q[0], y = q[1], z = q[2];
         q[0] = x * cy + (z - PELVIS_Z) * sy + hx; q[1] = y - PELVIS_Y + hy; q[2] = -x * sy + (z - PELVIS_Z) * cy;
+      }
+      // The barrel roll: the body tipped onto its side about the axis it travels along (so
+      // the barrel's own axis lies across the depth), then spun about that axis, forward.
+      if (T.tuck) {
+        const cx = hx + fc * TORSO_FWD, cy = hy + TORSO_UP;
+        const ct = Math.cos(T.tip), st = Math.sin(T.tip), c = Math.cos(T.roll), sn = Math.sin(T.roll) * -fc;
+        for (const q of p) {
+          let dy = q[1] - cy, dz = q[2];
+          q[1] = cy + dy * ct - dz * st; q[2] = dy * st + dz * ct;          // the tip, about the travel axis
+          const dx = q[0] - cx; dy = q[1] - cy;
+          q[0] = cx + dx * c - dy * sn; q[1] = cy + dx * sn + dy * c;      // the spin, about the depth axis
+        }
       }
       M.hip = [hx, hy]; M.pose = T.pose;
       return p;

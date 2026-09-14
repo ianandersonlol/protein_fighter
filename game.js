@@ -36,10 +36,14 @@
     // that unfolds what it reaches. It runs low, so it is blocked crouching. Once in a while.
     special:  { duration: 0.75, active: 0.18, window: 0.32, damage: 9,  stun: 0.4,  push: 220, fist: 'wave',      text: 'HEAT SHOCK', low: true, wave: true, reach: 300, again: 4 },
     // The bundle's own: a whirl with both paddles out, that can catch the other twice.
+    // The barrel's own: it tucks into the cylinder it is and rolls end over end along the
+    // membrane, mowing the other down; the body itself is the striking part.
+    roll:     { duration: 0.95, active: 0.15, window: 0.55, damage: 8,  stun: 0.32, push: 300, fist: 'torso',     text: 'BARREL ROLL', wave: true, roll: true, again: 4, reach: 26 },
     spin:     { duration: 0.8,  active: 0.12, window: 0.5,  damage: 6,  stun: 0.3,  push: 320, fist: 'arms',      text: 'HELIX SPIN', wave: true, spin: true, multi: 2, again: 4 },
   };
-  const SPECIAL = { barrel: 'special', helix: 'spin' };   // each protein's special, by form
+  const SPECIAL = { barrel: 'roll', helix: 'spin' };   // each protein's special, by form
   const GRAB = 34;            // Å between torsos, as drawn, within which a throw takes hold
+  const ROLL_SPEED = 250;     // Å/s the barrel roll covers ground at
   const THROWS = false;       // the throw is switched off for now: it needs more work before it is worth having
   const REACH = 13;           // Å from striking residues to any defender residue
   // ...trimmed for the bundle, whose straight helix legs and long hairpin arms reached 5-10 Å
@@ -146,7 +150,7 @@
     const m = MOVES[move];
     if (!m || f.stun > 0 || f.blockStun > 0 || (MOVES[f.action] && !(m.wave && f.t < 0.09)) || f.action === 'thrown' || (f.cooldown > 0 && !m.wave)) return false;
     if (!!m.air !== f.y > 0) return false;
-    if (m.wave) { if (f.y > 0 || clock - f.specialAt < m.again) return false; f.specialAt = clock; if (m.spin) sfx.spin(); else sfx.shock(); }
+    if (m.wave) { if (f.y > 0 || clock - f.specialAt < m.again) return false; f.specialAt = clock; if (m.spin) sfx.spin(); else if (m.roll) sfx.roll(); else sfx.shock(); }
     f.hits = 0; f.hitAt = -1;
     Object.assign(f, { action: move, t: 0, hit: false, cooldown: m.duration });
     // The limb swings with a whoosh: short and high for a punch, longer and lower for a
@@ -291,7 +295,7 @@
   // The striking end of the limb (see makeForm), where it is now.
   function strikePoints(f, move) {
     const m = MOVES[move], c = f.coords;
-    const idx = m.fist === 'rarm' ? f.form.fist : m.fist === 'arms' ? [...f.form.fist, ...f.form.fistL] : m.fist === 'wave' ? [] : move === 'kick' ? f.form.frontKick : f.form.kick;
+    const idx = m.fist === 'rarm' ? f.form.fist : m.fist === 'arms' ? [...f.form.fist, ...f.form.fistL] : m.fist === 'torso' ? f.form.torso : m.fist === 'wave' ? [] : move === 'kick' ? f.form.frontKick : f.form.kick;
     return idx.map(i => c[i]);
   }
 
@@ -299,7 +303,7 @@
   // is within reach. Damage, the dent and the callout all centre on that residue, so the
   // hit shows on the part that was actually struck rather than at the attacker's fist.
   function contact(a, b) {
-    let best = null, bestD = STRIKE_REACH[a.form.name] ?? REACH;
+    let best = null, bestD = MOVES[a.action].reach ?? STRIKE_REACH[a.form.name] ?? REACH;
     for (const s of strikePoints(a, a.action)) for (const q of b.coords) {
       const d = Math.hypot(s[0] - q[0], s[1] - q[1], s[2] - q[2]);
       if (d < bestD) { bestD = d; best = q; }
@@ -332,6 +336,7 @@
     if (!m) return f.form.legIdx;
     if (m.fist === 'rarm') return f.form.armSide.r;
     if (m.fist === 'arms' || m.fist === 'wave') return f.form.armIdx;
+    if (m.fist === 'torso') return f.form.torso;
     return move === 'kick' ? f.form.legSide.l : f.form.legSide.r;
   };
   // A strike comes from a limb: the more that limb, and the protein as a whole, has
@@ -724,7 +729,7 @@
       else if (free && gap < 75 && Math.random() < L.attack) {
         const r = Math.random();
         if (THROWS && gap < 48 && p.y === 0 && r < 0.3) attack(c, 'throw');
-        else if (gap > (c.form.name === 'barrel' ? 70 : 30) && gap < (c.form.name === 'barrel' ? 200 : 70) && p.y === 0 && r < L.special) attack(c, SPECIAL[c.form.name]);
+        else if (gap > (c.form.name === 'barrel' ? 60 : 30) && gap < (c.form.name === 'barrel' ? 170 : 70) && p.y === 0 && r < L.special) attack(c, SPECIAL[c.form.name]);
         else if (gap < 60 && r < 0.25) attack(c, Math.random() < 0.5 ? 'roundhouse' : 'straight');
         else attack(c, r < 0.4 ? 'punch' : r < 0.7 ? 'kick' : r < 0.85 ? 'lowkick' : 'lowpunch');
       }
@@ -837,6 +842,17 @@
     // The guard shows as a pose: arms tight over the head, the front knee up.
     fighters.forEach((f, i) => { f.guard = f.y === 0 && f.stun <= 0 && !MOVES[f.action] && f.action !== 'thrown' && f.hp > 0 && (held[i].has('block') || f.blockHold > 0); });
     for (const f of fighters) if (f.action === 'thrown' && f.heldBy != null) holdThrown(f);
+    // The barrel roll travels: along the membrane at a run for the rolling part, kicking
+    // up lipids behind it, and a ripple with each turn.
+    for (const f of fighters) if (f.action === 'roll') {
+      const m = MOVES.roll, rolling = f.t > m.active && f.t < m.active + m.window;
+      if (rolling) {
+        f.x += f.facing * ROLL_SPEED * dt;
+        if (net.seq % 3 === 0) window.Cell?.spark([barrelX(f) - f.facing * 18, 2, 0], -f.facing, 2.5, 'block');
+        const turns = Math.floor((f.t - m.active) / m.window * 2);
+        if (turns !== f.rollTurns) { f.rollTurns = turns; window.Cell?.ripple(barrelX(f), 1.1); }
+      } else f.rollTurns = -1;
+    }
     for (const f of fighters) if (f.action === 'special') { const w = waveAt(f); if (w != null && (net.seq & 1) === 0) window.Cell?.wave(w, f.facing); }
     // The helix spin flings ligands off the tips of its paddles as they whirl; the heat
     // shock throws them from the hands as they drive down, before the wave takes over.
@@ -863,7 +879,7 @@
       // the body instead of passing through it before the active frame.
       if (!m || b.hp === 0 || a.t < m.active * 0.6) return;
       if (a.hit && !(m.multi && a.hits < m.multi && a.t - a.hitAt > 0.2)) return;   // a spin may land again, a moment on
-      if (m.wave && !m.spin) {   // the shock wave: reaching the other, low along the floor
+      if (m.wave && !m.spin && !m.roll) {   // the shock wave: reaching the other, low along the floor
         const w = waveAt(a);
         if (w == null || Math.abs(w - barrelX(b)) > 24 || b.y > 30) return;
         const at = b.coords[b.form.mid].slice(); at[1] = Math.min(at[1], 30);
@@ -1003,6 +1019,9 @@
     damageNumber(at, dmg, a.combo);
     b.stun = m.stun * (0.4 + 0.6 * power) * (1 + 0.6 * legsGone); b.action = 'hurt'; b.t = 0; b.squat = 0; b.lastLow = !!m.low;   // slower to gather itself on bad legs
     if (b.y > 0) b.vy = Math.max(b.vy, 260);   // hit in the air: popped up, then falls
+    // Run over by the barrel roll, the other is tripped: flung into a tumble, to land in a
+    // heap and get up (the flung throw's own fall), rather than merely staggered.
+    if (m.roll && b.hp > 0) { b.action = 'thrown'; b.heldBy = null; b.heldProg = 0; b.tumble = -0.4; b.stun = 0; b.vy = 230; b.y = Math.max(b.y, 1); b.vx = a.facing * 200 * power; }
     hitstop = 0.05 + m.damage * 0.004 * power;
     window.Cell?.spark(at, a.facing, m.damage * power, 'hit');
     CAMERA.shake = Math.min(7, 1.5 + m.damage * power * 0.4);
@@ -1373,6 +1392,10 @@
     },
     grab() { noise(0.12, 800, 3000, { gain: 0.2, filter: 'bandpass' }); tone(300, 90, 0.18, { type: 'triangle', gain: 0.15 }); },
     shock() { tone(80, 400, 0.5, { type: 'sawtooth', gain: 0.2 }); noise(0.6, 200, 2500, { gain: 0.25, filter: 'bandpass' }); tone(45, 30, 0.7, { gain: 0.4 }); },
+    roll() {   // a rumble along the membrane, two thumps as it turns over
+      noise(0.75, 90, 400, { gain: 0.3, filter: 'bandpass', delay: 0.1 });
+      for (const d of [0.15, 0.42]) { tone(70, 30, 0.22, { gain: 0.5, delay: d }); noise(0.08, 600, 150, { gain: 0.2, delay: d }); }
+    },
     spin() { for (let i = 0; i < 4; i++) noise(0.14, 400, 2200, { gain: 0.16, filter: 'bandpass', delay: i * 0.15 }); tone(180, 320, 0.6, { type: 'triangle', gain: 0.1 }); },
     denatured() {   // the announcer: three low, rough syllables, DE-NA-TURED, and a hit under the last
       for (const [f0, f1, dur, delay, g] of [[112, 84, 0.22, 0, 0.5], [100, 78, 0.22, 0.26, 0.5], [92, 46, 0.7, 0.52, 0.6]]) {

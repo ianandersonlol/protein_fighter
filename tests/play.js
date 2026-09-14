@@ -55,7 +55,7 @@ async function solo() {
   await t.ev(`window.__c = { blocks: 0, hurt: 0, hitsGiven: 0, thrown: 0, shock: 0 }; const g = window.proteinFighter; let b = false, h = false, k = 0, th = false;
     setInterval(() => { const [p, c] = g.fighters; if (p.blockStun > 0 && !b) window.__c.blocks++; b = p.blockStun > 0; if (c.stun > 0 && !h) window.__c.hitsGiven++; h = c.stun > 0;
       if (p.stun > 0 && !k) window.__c.hurt++; k = p.stun > 0; if ((c.action === 'thrown' || p.action === 'thrown') && !th) window.__c.thrown++; th = c.action === 'thrown' || p.action === 'thrown';
-      if (p.action === 'special') window.__c.shock = 1; }, 16); 'counting'`);
+      if (p.action === 'special' || p.action === 'roll') window.__c.shock = 1; }, 16); 'counting'`);
   await t.hold('d', 1800);                       // walk in
   await t.hold('a', 3000);                       // hold back: block whatever comes
   for (let i = 0; i < 6; i++) { await t.tap(i % 2 ? 'f' : 'g'); await sleep(450); }   // punches and kicks
@@ -73,7 +73,7 @@ async function solo() {
   console.log('  counts', JSON.stringify(c), '| state', JSON.stringify(s));
   check(s.phase !== 'ready', 'the fight started');
   check(c.hitsGiven + c.hurt + c.blocks > 0, 'blows were exchanged (hits given, taken or blocked)');
-  check(c.shock === 1, 'the heat shock came out on punch + kick');
+  check(c.shock === 1, 'the special came out on punch + kick');
   check(picked > 0, 'a click on the PAE map selected residues on the body');
   check(t.errors.length === 0, 'no exceptions or console errors' + (t.errors.length ? ': ' + t.errors.slice(0, 3).join(' | ') : ''));
   t.ws.close();

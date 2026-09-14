@@ -81,9 +81,9 @@ Playing the CPU, both sets drive P1, and J / K / L punch, kick and block as well
   swung round high: slower to come out, harder when they land. The drop kick from a jump
   is the heaviest blow of all, as in Street Fighter
 - A special, punch and kick together, once every four seconds, and it differs by
-  protein. The barrel's is the heat shock: a wave runs out along the membrane from its
-  hands, flinging ligands, and unfolds what it reaches; it runs low, so it is blocked
-  crouching, and the hands fling ligands as they drive down. The bundle's is the helix spin:
+  protein. The barrel's is the barrel roll: it drops onto its side, so the barrel's own
+  axis lies across the screen, and rolls along the membrane as the wheel it is; whoever it
+  runs over is tripped, flung into a tumble to land in a heap. The bundle's is the helix spin:
   it whirls twice round with both paddles out, ligands flying off their tips, and can catch
   you twice; it shoves hard. The thin meter under each health bar fills as it comes back and lights when it is ready
 - Hits in a row while the other is still reeling count up as a combo, each with its
