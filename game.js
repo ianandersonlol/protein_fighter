@@ -139,7 +139,7 @@
       blockHold: 0,                  // the CPU holding back to block, for this long
       guard: false,                  // the guard is up: block held (or the CPU bracing), on the feet, free
       unfold: new Float32Array(N),   // 0 folded … 1 denatured, per residue
-      limp: 0.93,                    // how loose a fully unfolded residue hangs off the pose
+      limp: 0.86,                    // how loose a fully unfolded residue hangs off the pose
       shockDecay: 0.955,             // how slowly the last blow's shaking dies away
       seed: Math.random() * 100,
       coords: null,
@@ -169,7 +169,7 @@
   // gone it tips further forward (crawl), and winded it breathes deeper (tired).
   function bearing(f) {
     const m = meanUnfold(f);
-    return { sag: 0.6 * clamp01((m - 0.12) / 0.7), crawl: clamp01((m - 0.6) / 0.35),
+    return { sag: 0.55 * clamp01((m - 0.18) / 0.75), crawl: clamp01((m - 0.66) / 0.32),
       tired: Math.min(1, Math.max(0.15, f.fatigue, 1.3 * m)), mean: m, kickRange: kickRange(f),
       legs: { l: legDamage(f, 'l'), r: legDamage(f, 'r') }, arms: { l: armDamage(f, 'l'), r: armDamage(f, 'r') } };
   }
@@ -215,7 +215,7 @@
     // the whole protein is, and a knocked-out protein drops hardest of all.
     const collapsing = f.hp === 0;
     f.settle = Math.max(0, f.settle - TICK / 1.5);
-    const fall = GRAVITY * TICK * TICK * (1.6 + 2 * meanUnfold(f)) * (collapsing ? 1.6 : 1);
+    const fall = GRAVITY * TICK * TICK * (1.25 + 2 * meanUnfold(f)) * (collapsing ? 1.6 : 1);
     const loose = new Float32Array(N);
     for (let i = 0; i < N; i++) {
       // How loosely a residue hangs off its pose: nothing while folded, rising steeply as
@@ -367,7 +367,7 @@
   function wound(b, at, amount, legsOnly, dir = 0) {
     const { n: N, legs: LEGS } = b.form;
     let budget = amount / 100 * N;
-    const weight = new Float32Array(N), radius = 14 + 2.4 * amount;
+    const weight = new Float32Array(N), radius = 18 + 1.6 * amount;
     for (let pass = 0; pass < 8 && budget > 1e-6; pass++) {
       const legsLeft = legsOnly && [...b.unfold].some((v, i) => LEGS[i] && v < 1);
       let sum = 0;
@@ -375,7 +375,7 @@
         if (b.unfold[i] >= 1 || (legsLeft && !LEGS[i])) { weight[i] = 0; continue; }
         const q = b.coords[i], r = Math.hypot(q[0] - at[0], q[1] - at[1], q[2] - at[2]);
         const deep = r > 1e-6 ? Math.max(0, (q[0] - at[0]) * dir / r) : 0;   // 1 straight on into the body from the contact, 0 across the struck face
-        weight[i] = (Math.exp(-(r * r) / (2 * radius * radius)) * (1 - 0.5 * deep) + 0.005) * (1 + 0.9 * b.unfold[i]);
+        weight[i] = (Math.exp(-(r * r) / (2 * radius * radius)) * (1 - 0.5 * deep) + 0.005) * (1 + 0.4 * b.unfold[i]);
         sum += weight[i];
       }
       if (sum === 0) break;
@@ -393,7 +393,7 @@
     // and wider the blow throws it. Folded residues sit on their targets and barely notice.
     if (b.prev) {
       const mess = 1 + 1.2 * meanUnfold(b), reach = (radius + 8) * (1 + 0.5 * meanUnfold(b));
-      const push = Math.min(14, amount * 1.6 * mess), lift = Math.min(7, amount * 0.6 * mess);
+      const push = Math.min(11, amount * 1.4 * mess), lift = Math.min(5, amount * 0.5 * mess);
       for (let i = 0; i < N; i++) {
         const q = b.coords[i], r = Math.hypot(q[0] - at[0], q[1] - at[1], q[2] - at[2]);
         const w = Math.exp(-(r * r) / (2 * reach * reach)) * b.unfold[i];
@@ -402,9 +402,9 @@
         b.prev[i][1] -= lift * w;
         // Knocked loose to whip out and swing under gravity before the pose gathers it
         // back; a heavy blow shakes it longer.
-        b.shock[i] = Math.max(b.shock[i], Math.min(0.85, w * (0.35 + (mess - 1)) * 0.9));
+        b.shock[i] = Math.max(b.shock[i], Math.min(0.7, w * (0.25 + (mess - 1)) * 0.8));
       }
-      b.shockDecay = 0.955 + 0.025 * clamp01(amount / 8);
+      b.shockDecay = 0.955 + 0.015 * clamp01(amount / 8);
     }
     b.hp = health(b);
     b.sinceHit = 0;
@@ -595,6 +595,7 @@
   const net = { link: null, guest: !!window.Net?.joinId(), watch: !!window.Net?.watching(), events: [], seq: 0, lastUnfold: null, pkts: 0, bytes: 0, tick: 0, rtt: 0, dropped: false, watchers: 0 };
   const netEvent = (...e) => { if (net.link) net.events.push(e); };
   let fighters, wins = [0, 0], round = 1, time = 60, phase = 'ready', clock = 0, koTimer = 0, ai = 0, hitstop = 0;
+  let tick = 0;   // game ticks, for effects that fire every few
   const names = () => ['P1', 'P2'];   // the CPU is P2 too
 
   function resetRound() {
@@ -817,6 +818,7 @@
 
   function step(dt) {
     const [p, c] = fighters;
+    tick++;
     time = Math.max(0, time - dt);
     for (const f of fighters) {
       f.t += MOVES[f.action] ? dt / strikeSlow(f) : dt;   // a battered limb strikes slower
@@ -848,7 +850,7 @@
       const m = MOVES.roll, rolling = f.t > m.active && f.t < m.active + m.window;
       if (rolling) {
         f.x += f.facing * ROLL_SPEED * dt;
-        if (net.seq % 3 === 0) window.Cell?.spark([barrelX(f) - f.facing * 18, 2, 0], -f.facing, 2.5, 'block');
+        if (tick % 4 === 0) window.Cell?.spark([barrelX(f) - f.facing * 18, 2, 0], -f.facing, 2, 'block');
         const turns = Math.floor((f.t - m.active) / m.window * 2);
         if (turns !== f.rollTurns) { f.rollTurns = turns; window.Cell?.ripple(barrelX(f), 1.1); }
       } else f.rollTurns = -1;
@@ -858,8 +860,8 @@
     // shock throws them from the hands as they drive down, before the wave takes over.
     for (const f of fighters) {
       const m = MOVES[f.action], live = m && f.t > m.active && f.t < m.active + m.window;
-      if (f.action === 'spin' && live && net.seq % 2 === 0) for (const tip of [f.form.fist, f.form.fistL]) { const at = f.coords[tip[tip.length - 1]], c = f.coords[f.form.mid]; window.Cell?.fling(at, Math.sign(at[0] - c[0]) || f.facing, 1.2); }
-      if (f.action === 'special' && f.t > m.active * 0.5 && f.t < m.active + 0.12 && net.seq % 2 === 0) for (const tip of [f.form.fist, f.form.fistL]) window.Cell?.fling(f.coords[tip[tip.length - 1]], f.facing, 1);
+      if (f.action === 'spin' && live && tick % 3 === 0) for (const tip of [f.form.fist, f.form.fistL]) { const at = f.coords[tip[tip.length - 1]], c = f.coords[f.form.mid]; window.Cell?.fling(at, Math.sign(at[0] - c[0]) || f.facing, 1.2); }
+      if (f.action === 'special' && f.t > m.active * 0.5 && f.t < m.active + 0.12 && tick % 3 === 0) for (const tip of [f.form.fist, f.form.fistL]) window.Cell?.fling(f.coords[tip[tip.length - 1]], f.facing, 1);
     }
 
     keepTogether();
