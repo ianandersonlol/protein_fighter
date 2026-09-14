@@ -121,7 +121,7 @@ held at 3.8 Å throughout.
 
 Music and effects are synthesised in the browser with WebAudio; SOUND ON/OFF toggles both.
 
-The switches under the timer pick a dark or light theme and how the proteins are
+The THEME and COLOUR switches on the START panel pick a dark or light theme and how the proteins are
 coloured: by pLDDT (damage), as a rainbow along the chain, blue at the N-terminus to
 red at the C-terminus, which shows how each protein is threaded, or by secondary
 structure. Both choices are remembered. Clicking a PAE map lights the two stretches of
