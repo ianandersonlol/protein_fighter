@@ -49,7 +49,10 @@ can't, so both devices need internet even on one Wi-Fi; the page loads PeerJS an
 library from unpkg. A status line under the switches shows the packet rate and the
 link's state on both sides. A TURN server of your own can be given as
 `?turn=turn:host:port&tu=user&tp=password` before pressing REMOTE; the join link carries
-it to the guest. A connection that fails says what the browser saw. Two computers on
+it to the guest. A guest that drops without a word (a dead browser, a lost network, a
+phone that slept) is noticed by the host within six seconds of silence and its seat
+freed, and a guest that stops hearing the host for that long reconnects on its own; the
+same link works throughout. A connection that fails says what the browser saw. Two computers on
 home networks usually connect directly through STUN; a phone on cellular data, or a
 strict corporate NAT, needs a relay, and PeerJS's public relay hands out no relay
 candidates any more (measured September 2026), so those pairs need a TURN server of
