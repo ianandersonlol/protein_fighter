@@ -1,6 +1,7 @@
-// Forward kinematics for the humanoid v8 protein (from ../dance/mocap_engine.js, with
-// the arms reworked). Rigid domains follow joint rotations, each helical arm is two
-// rigid helices hinged at the elbow, and hinge loops relax.
+// Forward kinematics for a protein fighter (from ../dance/mocap_engine.js, with the arms
+// reworked). Rigid domains follow joint rotations, each arm is two rigid halves hinged at
+// the elbow, and hinge loops relax. Any protein with the same joints will do: the barrel
+// humanoid (rig_data.js) and the helical fighter (rig_data_helix.js) both pose here.
 (function () {
   const CA_STEP = 3.8021;
 
@@ -34,24 +35,75 @@
       this.bind = data.ca_xyz.map(p => p.slice());
       this.pivots = data.pivots;
       this.domains = data.domain_indices;
+      // How much of each arm bends at the elbow, as a fraction of its length each side of
+      // the joint. A helix arm bends in a few residues (a wider blend distorts its turns);
+      // a hairpin sheet keeps more of its pairing when the bend is spread over a quarter.
+      this.armHinge = data.arm_hinge ?? 0.07;
+      // Which domain owns each residue; null for the hinge residues between domains.
+      this.owner = new Array(this.n).fill(null);
+      for (const name in this.domains) for (const i of this.domains[name]) this.owner[i] = name;
+      // Tethers: a limb that hangs off the body by a hinge loop cannot be posed further
+      // from its anchor than the loop reaches, so the whole limb, and each part down the
+      // chain from a joint, is pulled back toward the residue the loop leaves from. Read
+      // off the chain: the first residue outside the group before it, and after it.
+      const chains = [['lleg_thigh', 'lleg_shin', 'lleg_foot'], ['rleg_thigh', 'rleg_shin', 'rleg_foot'], ['head'], ['larm'], ['rarm']];
+      this.tethers = [];
+      for (const chain of chains) for (let k = 0; k < chain.length; k++) {
+        const group = chain.slice(k).filter(name => this.domains[name]);
+        if (!group.length) continue;
+        const inside = i => this.owner[i] === null || group.includes(this.owner[i]);
+        const idx = group.flatMap(name => this.domains[name]);
+        const lo = Math.min(...idx), hi = Math.max(...idx), pulls = [];
+        let a = lo - 1; while (a >= 0 && inside(a)) a--;
+        let b = hi + 1; while (b < this.n && inside(b)) b++;
+        // Across a loop the limb may sit anywhere within the loop's reach; bonded straight
+        // to its anchor (a joint with no loop residue) it is held at exactly a bond's length,
+        // so the bond bends but never stretches or compresses either side.
+        if (a >= 0) pulls.push([lo, a, lo - a >= 2 ? (lo - a) * CA_STEP * 0.98 : CA_STEP, lo - a < 2]);
+        if (b < this.n) pulls.push([hi, b, b - hi >= 2 ? (b - hi) * CA_STEP * 0.98 : CA_STEP, b - hi < 2]);
+        if (pulls.length) this.tethers.push({ domains: group, pulls });
+      }
     }
 
-    // An arm is two rigid helices, shoulder→elbow and elbow→hand, joined by a short
-    // hinge. The rigid halves keep every i→i+3 and i→i+4 distance of the bind helix,
-    // so the cartoon still reads helix on both sides of the elbow; only the few hinge
-    // residues bend. (The original smeared the bend over 60% of the arm by blending
+    // How far along an arm each of its residues sits: 0 at the shoulder, 1 at the hand,
+    // by position along the shoulder-to-hand line. A helix arm runs from one end to the
+    // other; a hairpin arm goes out and comes back, so its two strands share values.
+    // Where the arm's elbow is, as a fraction of shoulder to hand: from the elbow pivot
+    // if the rig gives one, projected onto the arm's line; otherwise halfway.
+    elbowAt(name) {
+      const P = this.pivots, e = P[name + '_elbow'];
+      if (!e) return 0.5;
+      const sh = P[name + '_shoulder'], axis = sub3(P[name + '_hand'], sh), d = sub3(e, sh);
+      return Math.min(Math.max((d[0] * axis[0] + d[1] * axis[1] + d[2] * axis[2]) / (axis[0] ** 2 + axis[1] ** 2 + axis[2] ** 2), 0.1), 0.9);
+    }
+
+    armParam(name) {
+      const P = this.pivots, sh = P[name + '_shoulder'], axis = sub3(P[name + '_hand'], sh), L2 = axis[0] ** 2 + axis[1] ** 2 + axis[2] ** 2;
+      return this.domains[name].map(i => {
+        const d = sub3(this.bind[i], sh);
+        return Math.min(Math.max((d[0] * axis[0] + d[1] * axis[1] + d[2] * axis[2]) / L2, 0), 1);
+      });
+    }
+
+    // An arm is two rigid halves, shoulder→elbow and elbow→hand, joined by a short
+    // hinge. The rigid halves keep every i→i+3 and i→i+4 distance of the bind pose, so
+    // the cartoon still reads helix (or strand) on both sides of the elbow; only the few
+    // hinge residues bend. (The original smeared the bend over 60% of the arm by blending
     // rotations residue by residue, which distorted the helical turns by up to 3.7 Å.)
-    _bendArm(ca, pShBind, pHandBind, pSh, Rup, Rfa, reverse) {
-      const n = ca.length, HINGE = 0.07;   // half-width of the hinge, as a fraction of the arm
-      const pElBind = scale3(add3(pShBind, pHandBind), 0.5);
+    // `param` is each residue's place along the arm, 0 shoulder … 1 hand (armParam).
+    // `elbow` is where along the arm it bends, 0 shoulder … 1 hand: the rig's elbow pivot
+    // if it has one, else halfway.
+    _bendArm(ca, param, pShBind, pHandBind, pSh, Rup, Rfa, elbow = 0.5) {
+      const n = ca.length, HINGE = this.armHinge;   // half-width of the hinge, as a fraction of the arm
+      const pElBind = add3(pShBind, scale3(sub3(pHandBind, pShBind), elbow));
       const RupT = matT(Rup), RfaT = matT(Rfa);
       const pEl = add3(matVec3(RupT, sub3(pElBind, pShBind)), pSh);
       const out = new Array(n), free = new Uint8Array(n);
       for (let i = 0; i < n; i++) {
-        const s = reverse ? 1 - i / (n - 1) : i / (n - 1);   // 0 at the shoulder, 1 at the hand
+        const s = param[i];
         const upper = add3(matVec3(RupT, sub3(ca[i], pShBind)), pSh);
         const fore = add3(matVec3(RfaT, sub3(ca[i], pElBind)), pEl);
-        const u = Math.min(Math.max((s - (0.5 - HINGE)) / (2 * HINGE), 0), 1);
+        const u = Math.min(Math.max((s - (elbow - HINGE)) / (2 * HINGE), 0), 1);
         const w = u * u * (3 - 2 * u);
         out[i] = add3(scale3(upper, 1 - w), scale3(fore, w));
         free[i] = u > 0 && u < 1 ? 1 : 0;
@@ -114,11 +166,12 @@
         for (const i of D[name]) { ca[i] = add3(matVec3(R, this.bind[i]), t); owner[i] = name; }
       }
       const arms = [
-        ['larm', P.larm_shoulder, P.larm_hand, pLsh, Rlup, Rlfa, true],
-        ['rarm', P.rarm_shoulder, P.rarm_hand, pRsh, Rrup, Rrfa, false],
+        ['larm', P.larm_shoulder, P.larm_hand, pLsh, Rlup, Rlfa],
+        ['rarm', P.rarm_shoulder, P.rarm_hand, pRsh, Rrup, Rrfa],
       ];
-      for (const [name, sb, hb, ps, Ru, Rf, rev] of arms) {
-        const bent = this._bendArm(D[name].map(i => this.bind[i]), sb, hb, ps, Ru, Rf, rev);
+      this._armParam ??= { larm: this.armParam('larm'), rarm: this.armParam('rarm') };
+      for (const [name, sb, hb, ps, Ru, Rf] of arms) {
+        const bent = this._bendArm(D[name].map(i => this.bind[i]), this._armParam[name], sb, hb, ps, Ru, Rf, this.elbowAt(name));
         D[name].forEach((i, k) => { ca[i] = bent[k]; owner[i] = name; });
       }
       // Unowned hinge residues: blend the neighbouring domains' transforms.
@@ -137,26 +190,19 @@
 
     _relax(ca, owner, iterations) {
       const D = this.domains;
-      const pull = (from, to, maxReach) => {
+      const pull = (from, to, reach, exact) => {
         const d = dist3(ca[from], ca[to]);
-        return d > maxReach ? scale3(sub3(ca[to], ca[from]), 0.5 * (d - maxReach) / d) : [0, 0, 0];
+        return d > reach || (exact && d < reach) ? scale3(sub3(ca[to], ca[from]), (exact ? 1 : 0.5) * (d - reach) / d) : [0, 0, 0];
       };
       const shiftDomains = (names, s) => {
         if (norm3(s) <= 1e-4) return;
         for (const name of names) for (const i of D[name]) ca[i] = add3(ca[i], s);
       };
       for (let it = 0; it < iterations; it++) {
-        for (const [th, sh, ft, a, b] of [['lleg_thigh', 'lleg_shin', 'lleg_foot', 43, 88], ['rleg_thigh', 'rleg_shin', 'rleg_foot', 173, 218]]) {
-          const i0 = D[th][0], i1 = D[th][D[th].length - 1];
-          shiftDomains([th, sh, ft], add3(pull(i0, a, (i0 - a) * CA_STEP * 0.98), pull(i1, b, (b - i1) * CA_STEP * 0.98)));
-        }
-        for (const [ft, sa, fa, fb, sb] of [['lleg_foot', 60, 62, 69, 71], ['rleg_foot', 190, 192, 199, 201]]) {
-          const reach = 2 * CA_STEP * 0.98;
-          shiftDomains([ft], add3(pull(fa, sa, reach), pull(fb, sb, reach)));
-        }
-        if (D.head) {
-          const reach = 3 * CA_STEP * 0.96;
-          shiftDomains(['head'], add3(pull(124, 121, reach), pull(161, 164, reach)));
+        for (const { domains, pulls } of this.tethers) {
+          let s = [0, 0, 0];
+          for (const [from, to, reach, exact] of pulls) s = add3(s, pull(from, to, reach, exact));
+          shiftDomains(domains, s);
         }
         for (let i = 0; i < this.n - 1; i++) {
           if (owner[i] !== null && owner[i] === owner[i + 1]) continue;
@@ -164,8 +210,9 @@
           if (l < 1e-9) continue;
           const corr = scale3(d, 0.5 * (l - CA_STEP) / l);
           const fixedA = owner[i] !== null, fixedB = owner[i + 1] !== null;
-          if (fixedA && !fixedB) ca[i + 1] = sub3(ca[i + 1], scale3(corr, 2));
-          else if (fixedB && !fixedA) ca[i] = add3(ca[i], scale3(corr, 2));
+          if (fixedA && fixedB) continue;   // a bond straight between two rigid parts: the tether above holds it, so neither part is bent
+          if (fixedA) ca[i + 1] = sub3(ca[i + 1], scale3(corr, 2));
+          else if (fixedB) ca[i] = add3(ca[i], scale3(corr, 2));
           else { ca[i] = add3(ca[i], corr); ca[i + 1] = sub3(ca[i + 1], corr); }
         }
       }

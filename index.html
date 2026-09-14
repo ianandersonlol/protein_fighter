@@ -2,7 +2,7 @@
 <html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Protein Fighter</title>
 <link rel="icon" href="data:,">
 <style>
@@ -12,48 +12,68 @@
   :root {
     --bg: #000000; --ink: #ece9e2; --panel: #131418; --faint: #ece9e21a; --veil: #000000b3;
     --floor1: #ece9e208; --floor2: #ece9e214; --grid: #ece9e20d; --edge-far: #ece9e233; --edge-near: #ece9e299;
-    --cap-edge: #ece9e299; --glow: 0 0 18px #000;
+    --cap-edge: #ece9e299; --glow: 0 0 18px #000; --ko: #ff3b2f; --ko-glow: #7a0a05;
   }
   :root[data-theme="light"] {
     --bg: #ffffff; --ink: #1d1b18; --panel: #ffffff; --faint: #ffffff88; --veil: #ffffffcc;
     --floor1: #1d1b1808; --floor2: #1d1b1814; --grid: #1d1b180d; --edge-far: #1d1b1840; --edge-near: #1d1b18;
-    --cap-edge: #1d1b18; --glow: none;
+    --cap-edge: #1d1b18; --glow: none; --ko: #c8102e; --ko-glow: #ffb3a8;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; height: 100vh; overflow: hidden; background: var(--bg); color: var(--ink);
+  body { margin: 0; height: 100vh; height: 100dvh; overflow: hidden; background: var(--bg); color: var(--ink);
          font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .arena { position: relative; width: 100%; height: 100%; }
+  /* Everything around the stage is sized from the screen: --u is a unit that grows with
+     the viewport, kept within reason on a phone and on a big monitor. */
+  .arena { position: relative; width: 100%; height: 100%;
+           --u: clamp(0.62px, 0.09vmin, 1.15px);
+           --side: max(env(safe-area-inset-left), env(safe-area-inset-right), 24px);
+           --foot: max(env(safe-area-inset-bottom), 12px); }
   #stage { position: absolute; inset: 0; pointer-events: none; }
   /* The camera looks down a little, so the floor is a band, not a line: its far edge
      sits above the feet line and its near edge below, and a foot nearer the camera
      lands lower in it. */
-  /* The band reaches well back behind the feet, so a back foot always stands on floor. */
-  .floor { position: absolute; left: 0; right: 0; top: calc(70% - 10vh); bottom: 0; pointer-events: none;
-           background: linear-gradient(var(--floor1), var(--floor2) 17vh, #0000 17vh),
+  /* The band reaches well back behind the feet, so a back foot always stands on floor.
+     game.js sets --floor-far and --floor-depth from the camera every frame. */
+  .floor { position: absolute; left: 0; right: 0; top: var(--floor-far, calc(70% - 10vh)); bottom: 0; pointer-events: none;
+           background: linear-gradient(var(--floor1), var(--floor2) var(--floor-depth, 17vh), #0000 var(--floor-depth, 17vh)),
                        repeating-linear-gradient(90deg, #0000 0 38px, var(--grid) 38px 40px); }
   .floor::before { content: ''; position: absolute; left: 0; right: 0; top: 0; border-top: 1px solid var(--edge-far); }
-  .floor::after { content: ''; position: absolute; left: 0; right: 0; top: 17vh; border-top: 2px solid var(--edge-near); }
+  .floor::after { content: ''; position: absolute; left: 0; right: 0; top: var(--floor-depth, 17vh); border-top: 2px solid var(--edge-near); }
 
-  .hud { position: absolute; top: 18px; left: 24px; right: 24px; display: flex; gap: 24px; align-items: start; z-index: 2; }
-  .player { flex: 1; }
-  .player b { font-size: 22px; font-style: italic; letter-spacing: -0.5px; }
-  .player small { display: block; font-size: 10px; letter-spacing: 1px; opacity: 0.7; margin-top: 4px; }
+  .hud { position: absolute; top: max(env(safe-area-inset-top), 12px); left: var(--side); right: var(--side);
+         display: flex; gap: clamp(10px, 3vw, 24px); align-items: start; z-index: 2; }
+  .player { flex: 1; min-width: 0; }
+  .player b { font-size: calc(22 * var(--u)); font-style: italic; letter-spacing: -0.5px; }
+  .player small { display: block; font-size: max(9px, calc(10 * var(--u))); letter-spacing: 1px; opacity: 0.7; margin-top: 4px; white-space: nowrap; }
   /* Health is the average pLDDT; game.js colours the fill with the AlphaFold band. */
-  .bar { height: 16px; border: 2px solid var(--ink); margin-top: 6px; transform: skewX(-14deg); background: var(--faint); }
+  .bar { height: calc(16 * var(--u)); border: 2px solid var(--ink); margin-top: 6px; transform: skewX(-14deg); background: var(--faint); }
   .bar i { display: block; height: 100%; width: 100%; background: #0d57d3; transition: width 0.12s, background-color 0.3s; }
   .p2 { text-align: right; }
   .p2 .bar i { margin-left: auto; }
   /* PAE maps under the health bars (drawn by game.js). */
   .pae { margin-top: 10px; display: grid; gap: 3px; justify-items: start; }
   .p2 .pae { justify-items: end; }
-  .pae canvas { width: 120px; height: 120px; image-rendering: pixelated; border: 1px solid var(--edge-far); }
+  .pae canvas { width: clamp(56px, 13vmin, 120px); height: clamp(56px, 13vmin, 120px); image-rendering: pixelated; border: 1px solid var(--edge-far); }
   .pae small { font-size: 9px; line-height: 1.3; opacity: 0.6; max-width: 180px; margin: 0; }
-  .timer { text-align: center; font-size: 40px; line-height: 1; min-width: 70px; }
-  .timer small { display: block; font-size: 10px; margin-top: 6px; letter-spacing: 1px; }
+  .timer { text-align: center; font-size: calc(40 * var(--u)); line-height: 1; min-width: calc(70 * var(--u)); }
+  .timer small { display: block; font-size: max(9px, calc(10 * var(--u))); margin-top: 6px; letter-spacing: 1px; white-space: nowrap; }
 
-  #impact { position: absolute; top: 34%; transform: translateX(-50%); font-size: 30px; font-weight: 900; font-style: italic;
+  #impact { position: absolute; top: 34%; transform: translateX(-50%); font-size: calc(30 * var(--u)); font-weight: 900; font-style: italic;
             color: var(--ink); text-shadow: var(--glow); opacity: 0; pointer-events: none; z-index: 3; white-space: nowrap; }
   #impact.pop { animation: pop 0.45s ease-out; }
+  /* The finisher: DENATURED slams in letter by letter over the knockout, the arena shaking. */
+  #finish { position: absolute; left: 0; right: 0; top: 30%; text-align: center; z-index: 3; pointer-events: none;
+            font-size: clamp(34px, 9vw, 110px); font-weight: 900; font-style: italic; letter-spacing: 0.04em; line-height: 1;
+            color: var(--ko); text-shadow: 0 0 0.25em var(--ko-glow), 0 0.04em 0 #000; }
+  #finish[hidden] { display: none; }
+  #finish span { display: inline-block; opacity: 0; animation: slam 0.32s cubic-bezier(0.2, 1.4, 0.3, 1) forwards; }
+  @keyframes slam { 0% { opacity: 0; transform: scale(3.5) translateY(-0.3em); filter: blur(4px); } 60% { opacity: 1; transform: scale(0.92); filter: blur(0); } 100% { opacity: 1; transform: scale(1); } }
+  #finish.settle { animation: throb 1.2s ease-in-out infinite alternate; }
+  @keyframes throb { from { transform: scale(1); } to { transform: scale(1.04); } }
+  .arena.shake { animation: shake 0.5s linear; }
+  @keyframes shake { 0%, 100% { transform: translate(0, 0); } 10% { transform: translate(-9px, 5px); } 20% { transform: translate(8px, -6px); }
+                     30% { transform: translate(-7px, -4px); } 40% { transform: translate(6px, 5px); } 50% { transform: translate(-5px, 3px); }
+                     60% { transform: translate(4px, -3px); } 70% { transform: translate(-3px, 2px); } 80% { transform: translate(2px, -1px); } 90% { transform: translate(-1px, 1px); } }
   @keyframes pop { 0% { opacity: 1; transform: translateX(-50%) scale(1.5); } 100% { opacity: 0; transform: translate(-50%, -30px) scale(1); } }
 
   #overlay { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: 12px;
@@ -71,13 +91,13 @@
   kbd { border: 1px solid var(--ink); padding: 0 4px; }
 
   /* Controls: P1 on the left of the keyboard, P2 on the right. */
-  .pad { position: absolute; bottom: 30px; z-index: 5; display: grid; gap: 5px; font-size: 10px; letter-spacing: 0.5px; }
+  .pad { position: absolute; bottom: calc(var(--foot) + 18px); z-index: 5; display: grid; gap: 5px; font-size: 10px; letter-spacing: 0.5px; }
   .pad[hidden] { display: none; }
   .pad .who { font-size: 12px; font-style: italic; }
   .pad .row { display: flex; gap: 10px; align-items: end; }
   .pad p { margin: 0; opacity: 0.6; }
-  .left { left: 24px; justify-items: start; }
-  .right { right: 24px; justify-items: end; text-align: right; }
+  .left { left: var(--side); justify-items: start; }
+  .right { right: var(--side); justify-items: end; text-align: right; }
   .dirs { display: grid; grid-template-areas: ". u ." "l d r"; gap: 4px; }
   .hits { display: flex; gap: 4px; }
   .cap { width: 46px; height: 42px; padding: 0; display: grid; place-content: center; gap: 1px; letter-spacing: 0;
@@ -88,32 +108,42 @@
   .cap.down { background: var(--ink); color: var(--bg); border-color: var(--ink); border-bottom-width: 2px; transform: translateY(2px); }
   .link { background: none; color: inherit; border: 0; padding: 0; font-size: 10px; letter-spacing: 0.5px; text-decoration: underline; }
   .link:focus:not(:focus-visible) { outline: none; }
-  /* A two-button switch under the timer; the current theme is filled in. */
-  .theme-switch { position: absolute; top: 94px; left: 50%; transform: translateX(-50%); z-index: 6; display: flex;
-                  border: 2px solid var(--ink); border-radius: 999px; overflow: hidden; }
+  /* Two-button switches under the timer, theme and colouring; the current choice is filled in. */
+  .switches { position: absolute; top: calc(max(env(safe-area-inset-top), 12px) + 82 * var(--u)); left: 50%; transform: translateX(-50%);
+              z-index: 6; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 10px; max-width: calc(100% - 2 * var(--side)); }
+  .theme-switch { display: flex; border: 2px solid var(--ink); border-radius: 999px; overflow: hidden; }
   .theme-switch button { background: transparent; color: var(--ink); border: 0; padding: 5px 12px; font-size: 11px;
                          letter-spacing: 1px; white-space: nowrap; }
   .theme-switch button.on { background: var(--ink); color: var(--bg); }
   .theme-switch button:not(.on):hover { background: var(--faint); }
   .theme-switch button:focus:not(:focus-visible) { outline: none; }
-  .credit { position: absolute; left: 0; right: 0; bottom: 8px; z-index: 5; text-align: center; font-size: 12px;
+  /* Legend and credit: centred at the bottom, between the two pads, and only where
+     there is room for them. */
+  .credit { position: absolute; left: 18%; right: 18%; bottom: calc(var(--foot) - 4px); z-index: 5; text-align: center; font-size: 12px;
             letter-spacing: 0.5px; opacity: 0.55; pointer-events: none; }
-  .legend { position: absolute; left: 0; right: 0; bottom: 28px; z-index: 5; text-align: center; font-size: 11px;
+  .legend { position: absolute; left: 18%; right: 18%; bottom: calc(var(--foot) + 16px); z-index: 5; text-align: center; font-size: 11px;
             opacity: 0.5; pointer-events: none; }
   @media (pointer: coarse) {
     .cap { width: 54px; height: 50px; }
     .pad p { display: none; }
   }
+  @media (max-width: 1100px) { .legend { display: none; } }
+  @media (max-width: 760px), (max-height: 520px) { .credit { display: none; } }
   @media (max-width: 640px) {
+    .arena { --side: max(env(safe-area-inset-left), env(safe-area-inset-right), 8px); }
     .cap { width: 40px; height: 44px; }
-    .left { left: 8px; }
-    .right { right: 8px; }
     .pad .row { flex-direction: column; align-items: inherit; }
     .pad p { display: none; }
-    .credit { bottom: auto; top: 318px; }
-    .legend { display: none; }
-    .pae canvas { width: 64px; height: 64px; }
     .pae small { display: none; }
+    .hud { gap: 8px; }
+    .player small { white-space: normal; }
+    .timer { min-width: 0; }
+  }
+  /* A short screen (a phone on its side): the switches go to the bottom, out of the fight. */
+  @media (max-height: 520px) {
+    .switches { top: auto; bottom: var(--foot); }
+    .pae { display: none; }
+    .theme-switch button { padding: 3px 9px; }
   }
 </style>
 </head>
@@ -130,12 +160,18 @@
       <div class="pae"><canvas id="pae1" width="91" height="91" aria-label="P2 predicted aligned error map"></canvas></div></div>
   </div>
 
-  <!-- Theme switch: under the timer, above the title screen too -->
-  <div class="theme-switch" role="group" aria-label="Colour theme">
-    <button data-theme-choice="dark" tabindex="-1" aria-pressed="true" class="on">☾ DARK</button><button data-theme-choice="light" tabindex="-1" aria-pressed="false">☀ LIGHT</button>
+  <!-- Theme and colouring switches: under the timer, above the title screen too -->
+  <div class="switches">
+    <div class="theme-switch" role="group" aria-label="Colour theme">
+      <button data-theme-choice="dark" tabindex="-1" aria-pressed="true" class="on">☾ DARK</button><button data-theme-choice="light" tabindex="-1" aria-pressed="false">☀ LIGHT</button>
+    </div>
+    <div class="theme-switch" role="group" aria-label="Protein colouring">
+      <button data-colour-choice="plddt" tabindex="-1" aria-pressed="true" class="on">pLDDT</button><button data-colour-choice="rainbow" tabindex="-1" aria-pressed="false">RAINBOW</button>
+    </div>
   </div>
 
   <div id="impact"></div>
+  <div id="finish" hidden aria-live="polite"></div>
 
   <div id="overlay" class="ended">
     <h1 id="title" hidden></h1>
@@ -179,12 +215,13 @@
     </div>
   </div>
 
-  <div class="legend">Colour: <b>pLDDT</b> (blue confident, orange disordered) · corner maps: <b>PAE</b> (green 0 Å, white 30 Å)</div>
+  <div class="legend">Colour: <b>pLDDT</b> (blue confident, orange disordered) or <b>rainbow</b> (blue N-terminus to red C-terminus) · corner maps: <b>PAE</b> (green 0 Å, white 30 Å)</div>
   <div class="credit">character inspired by Hannes Stark and Alex Waldherr</div>
 </main>
 
 <script src="vendor/py2Dmol.embed.min.js"></script>
 <script src="rig_data.js"></script>
+<script src="rig_data_helix.js"></script>
 <script src="rig.js"></script>
 <script src="motion.js"></script>
 <script src="game.js"></script>

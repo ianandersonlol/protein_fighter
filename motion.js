@@ -147,6 +147,8 @@
       const breath = breathe * (0.015 + 0.07 * tired), bob = tired * 0.12 * (breathe + 1) / 2;
       const T = {
         pose, pitch: f.crouch ? 0.05 : 0, fwd: 0, bend: 0, legs: null,
+        // The head nods with the breath, and a little further down in a crouch.
+        head: breath * 0.6 + (f.crouch ? 0.12 : 0),
         larmU: -0.65 + breath, larmL: 1.15, rarmU: -1 + breath, rarmL: 0.95,
         // slumped, it sinks toward the kneel, bobbing with each breath; crouched, all the way
         low: f.crouch ? 1 : ease(clamp01(sag + bob)),
@@ -165,6 +167,7 @@
 
       if (pose === 'punch' || pose === 'lowpunch' || pose === 'airpunch') {
         T.rarmU = -(1 - s); T.rarmL = 0.95 * (1 - s);
+        T.head += s * 0.15;   // eyes on the target
         if (pose === 'punch') { T.pitch = s * 0.2; T.fwd = s * 5; }
         if (pose === 'lowpunch') T.low = 1;
         if (pose === 'airpunch') airLegs();
@@ -181,6 +184,7 @@
         T.pitch = kr * s * 0.5;
         T.larmU = -0.65 - kr * s * 0.55; T.larmL = 1.15 - kr * s * 0.75;
         T.rarmU = -1 - kr * s * 0.9; T.rarmL = 0.95 - kr * s * 1.7;
+        T.head = -kr * s * 0.25;   // the head stays up as the body leans back
       } else if (pose === 'lowkick') {
         // From the deep crouch, the back leg sweeps out along the floor.
         T.low = 1;
@@ -196,15 +200,18 @@
         T.larmU = -0.3; T.rarmU = -1.2;
       } else if (pose === 'rest') {
         // Round won: guard down, arms hanging loose with a little bend at the elbow.
-        T.larmU = T.rarmU = -1.4 + breath; T.larmL = T.rarmL = -1.2;
+        T.larmU = T.rarmU = -1.4 + breath; T.larmL = T.rarmL = -1.2; T.head = 0.25 + breath;
       } else if (pose === 'hurt') {
         const r = Math.sin(clamp01(1 - f.stun / 0.3) * Math.PI);
         T.pitch = -r * 0.8; T.rarmU = -1 - r * 0.7; T.fwd = -r * 12;
+        T.head = -r * 0.5;   // the head snaps back with the blow (the neck's own whiplash is jolt())
       } else if (pose === 'jump') {
         airLegs();
+        T.head = -0.15;   // looking up into the jump
       } else if (pose === 'ko') {
-        // Collapse: the knees give into the kneel and the torso folds forward, arms hanging.
-        T.low = 1; T.pitch = -1.2; T.larmU = T.rarmU = T.larmL = T.rarmL = 1.4;
+        // Collapse: the knees give into the kneel and the torso folds forward, arms hanging,
+        // the head lolling.
+        T.low = 1; T.pitch = -1.2; T.larmU = T.rarmU = T.larmL = T.rarmL = 1.4; T.head = 0.7;
       }
 
       // The slump leans the torso forward and lets the guard sink; a strike keeps the lean.
@@ -212,6 +219,7 @@
       if (sag > 0 && (pose === 'idle' || pose === 'rest' || pose === 'walk' || pose === 'hurt')) {
         const droop = 1.1 * sag + 0.8 * crawl;
         T.pitch += slump; T.larmU += droop; T.larmL += droop; T.rarmU += droop; T.rarmL += droop;
+        T.head += 0.5 * sag + 0.4 * crawl;   // the head hangs too
       }
       if (sag > 0 && MOVES[pose] && !MOVES[pose].air && f.y === 0) T.pitch += slump;
       if (pose === 'idle' || pose === 'rest') T.pitch += breath * 0.8;   // the chest heaves
@@ -234,7 +242,7 @@
         x: {}, v: {},   // spring positions and velocities, by name
         feet: { l: foot(f.x + f.facing * STAND.l[0]), r: foot(f.x + f.facing * STAND.r[0]) },
         phase: 0, walking: false, lastHip: f.x, lastV: 0, lastVy: f.vy,
-        swing: { l: [0, 0], r: [0, 0], leg: [0, 0] }, k: 1, stretch: { l: 0, r: 0 },
+        swing: { l: [0, 0], r: [0, 0], leg: [0, 0], head: [0, 0] }, k: 1, stretch: { l: 0, r: 0 },
       });
     }
 
@@ -262,6 +270,7 @@
       const bend = spring(M, 'bend', T.bend, 55, dt);
       const lu = spring(M, 'larmU', T.larmU, w, dt), ll = spring(M, 'larmL', T.larmL, w, dt);
       const ru = spring(M, 'rarmU', T.rarmU, w, dt), rl = spring(M, 'rarmL', T.rarmL, w, dt);
+      const hd = spring(M, 'head', T.head, Math.min(w, 30), dt);
       // A posed leg (kicking, or in the air) blends in over about a tenth of a second.
       const posed = {};
       for (const side of SIDES) {
@@ -352,6 +361,8 @@
         // Walking, the foot turns as the dance turns it; standing, it is flat on the floor,
         // toes down into a kneel; stepping, it points a little.
         let ft = F.walkY != null ? F.walkPitch : F.swinging ? s * 0.5 : s * low;
+        // A foot on the floor cannot point through it: levelled until its sole clears.
+        if (F.walkY == null) for (let n = 0; n < 8 && ankleY + soleBelow(ft) < FLOOR - 0.2; n++) ft *= 0.7;
         if (Q.weight > 1e-3 && Q.angles[0] !== undefined) {
           t = lerp(t, Q.angles[0], Q.weight); s = lerp(s, Q.angles[1], Q.weight); ft = lerp(ft, Q.angles[2], Q.weight);
         }
@@ -362,18 +373,23 @@
         L[side] = [t, s, ft];
       }
 
-      // 5. Limbs on strings: each arm, and the shins in the air, is a lightly damped
-      // pendulum driven by the hips' own acceleration - arms trail as it lunges or sets off,
-      // fling forward as it stops, swing against the legs when walking. The looser the
-      // protein, the slower and wider. Strikes damp it so a punch keeps its shape.
+      // 5. Limbs on strings: each arm, the head on its neck, and the shins in the air, is
+      // a lightly damped pendulum driven by the hips' own acceleration - arms and head
+      // trail as it lunges or sets off, fling forward as it stops, drop as it lands, swing
+      // against the legs when walking. The looser the protein, the slower and wider. A
+      // blow jolts them (jolt()); strikes damp the arms so a punch keeps its shape.
       const S = M.swing, v = dx / dt, acc = (v - M.lastV) / dt * fc, accY = (f.vy - M.lastVy) / dt;
       M.lastV = v; M.lastVy = f.vy;
       const loose = 0.3 + 0.7 * env.mean;
       const wn = 12 - 6 * loose, zeta = 0.25 - 0.1 * loose;
-      const trail = clamp(acc * 0.0004, -0.9, 0.9);
+      const trail = clamp(acc * 0.0004, -0.9, 0.9), drop = clamp(accY * 0.00001, -0.5, 0.5);
       const gait = walking ? Math.sin(2 * Math.PI * M.phase) * (0.3 + 0.3 * loose) : 0;
-      const pend = (st, target) => { st[1] += (wn * wn * (target - st[0]) - 2 * zeta * wn * st[1]) * dt; st[0] += st[1] * dt; };
-      pend(S.l, trail + gait); pend(S.r, trail - gait); pend(S.leg, clamp(accY * 0.00002, -0.8, 0.8));
+      const pend = (st, target, w = wn, z = zeta) => { st[1] += (w * w * (target - st[0]) - 2 * z * w * st[1]) * dt; st[0] += st[1] * dt; };
+      pend(S.l, trail + gait + drop); pend(S.r, trail - gait + drop); pend(S.leg, clamp(accY * 0.00002, -0.8, 0.8));
+      // The neck is the loosest joint of all: slower and less damped than the arms, so the
+      // head lags a lunge and keeps nodding after a blow.
+      pend(S.head, -0.6 * trail + 0.8 * drop, wn * 0.8, zeta * 0.7);   // lags a lunge (back), drops on a landing (forward)
+      S.head[0] = clamp(S.head[0], -1.2, 1.2);
       M.k += ((MOVES[f.action] ? 0.25 : 1) - M.k) * 0.15;
       const k = M.k, flap = air ? S.leg[0] : 0;
 
@@ -385,6 +401,7 @@
         rarm_upper: arm(1, ru + S.r[0] * k), rarm_lower: arm(1, rl + S.r[0] * 1.6 * k),
         lleg_upper: X(L.l[0]), lleg_lower: X(L.l[1] + flap), lleg_foot: X(L.l[2]),
         rleg_upper: X(L.r[0]), rleg_lower: X(L.r[1] + flap * 0.8), rleg_foot: X(L.r[2]),
+        head: X(pitch - hd - S.head[0]),   // the rig's positive pitch tilts back; head angles here are nods forward
       });
       for (const q of p) {
         const x = q[0], y = q[1], z = q[2];
@@ -394,7 +411,15 @@
       return p;
     }
 
-    return { update, legIK, legFK, STRIDE, ANKLE_Y };
+    // A blow: the head whips on its neck, the arms fly, the legs buckle - by so much
+    // angular speed (rad/s) each. Positive head is a nod forward.
+    function jolt(f, { head = 0, arms = 0, legs = 0 }) {
+      const S = stateOf(f).swing;
+      S.head[1] += head; S.l[1] += arms; S.r[1] += arms; S.leg[1] += legs;
+    }
+    const NECK_HEIGHT = (P.neck ? P.neck[1] : P.larm_shoulder[1]) - PELVIS_Y;   // the neck above the hips, in the rig
+
+    return { update, jolt, legIK, legFK, STRIDE, ANKLE_Y, NECK_HEIGHT };
   }
 
   window.Motion = { create };

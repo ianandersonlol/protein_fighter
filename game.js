@@ -1,9 +1,9 @@
-// Protein Fighter: two 362-residue proteins, one py2Dmol scene, live coordinates.
+// Protein Fighter: two proteins, one py2Dmol scene, live coordinates. P1 is the beta
+// barrel humanoid from ../dance; P2 the helical fighter (scripts/build_helix_fighter.py):
+// a helix bundle with hairpin arms and helix legs. Both hang off the same joints.
 // World units are Ångström. x runs across the arena, y is up, the floor is y = 0.
 (function () {
   const { DomainRig, rotX: X, rotY: Y, matMul3: mul, mat3Eye: eye, CA_STEP } = window.Rig;
-  const rig = new DomainRig(window.HUMANOID_V8_RIG);
-  const N = rig.n;
   const $ = id => document.getElementById(id);
 
   // ---------------------------------------------------------------- combat rules
@@ -28,8 +28,66 @@
   const REFOLD = 0.02, REFOLD_DELAY = 2;   // unfolding recovered per residue per second, after this long unhit
   const DAMAGE_SCALE = 0.55;               // every hit softened, so a round takes about twice as many
 
-  function newFighter(x, facing) {
+  // ---------------------------------------------------------------------- forms
+  // A form is a protein to fight as: its rig (the scaffold, joints and rigid domains),
+  // the motion that drives it, and every index set the game reads off the chain. The
+  // two fighters are different proteins, so each carries its own.
+  const PAE_BIN = 4;   // residues per PAE pixel, each way
+  function makeForm(name, data) {
+    const rig = new DomainRig(data), n = rig.n, D = rig.domains;
+    const motion = window.Motion.create(rig, { MOVES, JUMP_V, JUMP_VX, SQUAT, LANDING });
+    // Leg residues: each leg from where it leaves the torso to where it returns (or, a
+    // leg at a chain end, to the end).
+    const legs = new Uint8Array(n);
+    for (const side of ['lleg', 'rleg']) {
+      const idx = [...D[side + '_thigh'], ...D[side + '_shin'], ...D[side + '_foot']];
+      let lo = Math.min(...idx), hi = Math.max(...idx);
+      while (lo > 0 && rig.owner[lo - 1] === null) lo--;
+      while (hi < n - 1 && rig.owner[hi + 1] === null) hi++;
+      for (let i = Math.max(0, lo - 1); i <= Math.min(n - 1, hi + 1); i++) legs[i] = 1;
+    }
+    const legIdx = [...legs.keys()].filter(i => legs[i]);
+    // The striking end of each limb, not only its tip. Point-blank, a kick's foot has
+    // gone clean through the other torso's hollow by the time it is out, 13 Å from every
+    // residue, and only the shin is still against the body: counting the foot alone made
+    // a kick at contact whiff. The outer third of the arm, likewise, for a punch: the
+    // last dozen residues of a helix arm, the outer stretch of both strands of a hairpin.
+    const reach = rig.armParam('rarm');
+    const fist = D.rarm.filter((_, k) => reach[k] > 0.64);
+    const torso = D.torso;
     return {
+      name, rig, n, motion, legs, legIdx, fist,
+      armIdx: [...D.larm, ...D.rarm], kick: [...D.rleg_shin, ...D.rleg_foot], torso,
+      mid: torso[torso.length >> 1],   // a residue in the middle of the body
+      // Deterministic per-residue direction, so jitter is stable frame to frame.
+      jitterDir: Array.from({ length: n }, (_, i) => {
+        const h = k => { const v = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453; return (v - Math.floor(v)) * 2 - 1; };
+        return [h(1), h(2), h(3)];
+      }),
+      // The folded chain's own spacing two residues apart: enough stiffness that a
+      // collapsing body crumples as a heavy chain rather than pouring out like a liquid,
+      // while leaving helices and strands (set by spacing three and four apart) free to
+      // come undone.
+      localShape: [2].map(gap => [gap, Float32Array.from({ length: n - gap }, (_, i) => {
+        const a = rig.bind[i], b = rig.bind[i + gap];
+        return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+      })]),
+      // PAE map: residue pairs pooled into each pixel, and scratch space.
+      pb: Math.ceil(n / PAE_BIN),
+      paeCount: null, paeSum: null, paeFrames: new Float64Array(n * 12),
+    };
+  }
+  const FORMS = { barrel: makeForm('barrel', window.HUMANOID_V8_RIG), helix: makeForm('helix', window.HELIX_FIGHTER_RIG) };
+  for (const form of Object.values(FORMS)) {
+    const { n, pb } = form;
+    form.paeCount = new Float32Array(pb * pb); form.paeSum = new Float32Array(pb * pb);
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) form.paeCount[(i / PAE_BIN | 0) * pb + (j / PAE_BIN | 0)]++;
+  }
+
+  function newFighter(x, facing, form) {
+    const N = form.n;
+    return {
+      form,                          // which protein this is: rig, motion and index sets
       x, y: 0, vx: 0, vy: 0, facing, hp: 100, crouch: false, queued: null, sinceHit: 99,
       squat: 0, jumpDir: 0, upReleased: false, landing: 0, landPower: 0,
       motion: null,                  // motion.js: pose springs, planted feet, the walk cycle
@@ -64,7 +122,6 @@
   // How a body moves is motion.js - pose, hips, planted feet, leg IK, the rig - in one
   // pass. The game hands it the fighter and what damage has done to its bearing, and gets
   // back where every residue belongs; what damage does to the chain itself is added here.
-  const motion = window.Motion.create(rig, { MOVES, JUMP_V, JUMP_VX, SQUAT, LANDING });
   // The more of it has unfolded, the heavier it carries itself: it slumps (sag), nearly
   // gone it tips further forward (crawl), and winded it breathes deeper (tired).
   function bearing(f) {
@@ -73,18 +130,13 @@
       tired: Math.max(0.15, f.fatigue, m), mean: m, kickRange: kickRange(f) };
   }
 
-  // Deterministic per-residue direction, so jitter is stable frame to frame.
-  const jitterDir = Array.from({ length: N }, (_, i) => {
-    const h = k => { const v = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453; return (v - Math.floor(v)) * 2 - 1; };
-    return [h(1), h(2), h(3)];
-  });
-
   // Where each residue belongs this tick: the moving body (motion.js), then what damage
   // does to it. A blow dents it, and unfolded residues get a jitter that breaks the i→i+4
   // geometry, so py2Dmol's own secondary-structure assignment stops calling them helix or
   // strand.
   function targets(f, clock) {
-    const p = motion.update(f, { clock, dt: TICK, ...bearing(f) });
+    const { n: N, jitterDir } = f.form;
+    const p = f.form.motion.update(f, { clock, dt: TICK, ...bearing(f) });
     // A hit breaks the helices over a few frames rather than in one.
     for (let i = 0; i < N; i++) f.soft[i] += (f.unfold[i] - f.soft[i]) * 0.2;
     f.jit += ((f.hp === 0 ? 11 : 5) - f.jit) * 0.05;
@@ -106,15 +158,9 @@
   // bond ends each tick at exactly CA_STEP. Mid-fight a residue only goes partway limp
   // (f.limp), so a battered protein still stands; a knockout lets go completely.
   const TICK = 1 / 60;
-  // The folded chain's own spacing two residues apart: enough stiffness that a collapsing
-  // body crumples as a heavy chain rather than pouring out like a liquid, while leaving
-  // helices and strands (set by spacing three and four apart) free to come undone.
-  const LOCAL_SHAPE = [2].map(gap => [gap, Float32Array.from({ length: N - gap }, (_, i) => {
-    const a = rig.bind[i], b = rig.bind[i + gap];
-    return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
-  })]);
 
   function body(f, clock) {
+    const { n: N, localShape: LOCAL_SHAPE } = f.form;
     const T = targets(f, clock), P = f.coords, u = f.unfold;
     f.targets = T;   // where the pose wanted each residue this tick (for inspection)
     if (!P) { f.prev = T.map(q => q.slice()); return T; }
@@ -199,13 +245,9 @@
     return P;
   }
 
-  // The striking end of the limb, not only its tip. Point-blank, a kick's foot has gone
-  // clean through the other barrel's hollow by the time it is out, 13 Å from every
-  // residue, and only the shin is still against the body: counting the foot alone made
-  // a kick at contact whiff. The forearm's last dozen residues, likewise, for a punch.
+  // The striking end of the limb (see makeForm), where it is now.
   function strikePoints(f, move) {
-    const D = rig.domains, c = f.coords;
-    const idx = MOVES[move].fist === 'rarm' ? D.rarm.slice(-12) : [...D.rleg_shin, ...D.rleg_foot];
+    const c = f.coords, idx = MOVES[move].fist === 'rarm' ? f.form.fist : f.form.kick;
     return idx.map(i => c[i]);
   }
 
@@ -222,28 +264,23 @@
   }
 
   // ------------------------------------------------------------------ damage
-  // Leg residues: each leg from where it leaves the torso to where it returns.
-  const LEGS = new Uint8Array(N);
-  for (const [a, b] of [[43, 88], [173, 218]]) for (let i = a; i <= b; i++) LEGS[i] = 1;
-  const LEG_IDX = [...LEGS.keys()].filter(i => LEGS[i]);
-  const ARM_IDX = [...rig.domains.larm, ...rig.domains.rarm];
   const partDamage = (f, idx) => idx.reduce((s, i) => s + f.unfold[i], 0) / idx.length;
   // Unfolded legs still carry a fighter, just slowly: down to a third of the pace.
-  const mobility = f => Math.max(0.2, 1 - 0.65 * partDamage(f, LEG_IDX) - 0.25 * meanUnfold(f));
+  const mobility = f => Math.max(0.2, 1 - 0.65 * partDamage(f, f.form.legIdx) - 0.25 * meanUnfold(f));
   // A strike comes from a limb: the more that limb, and the protein as a whole, has
   // unfolded, the slower it plays out (up to ~2.4x) and the less it hurts (down to a quarter).
-  const limbOf = move => MOVES[move]?.fist === 'rarm' ? ARM_IDX : LEG_IDX;
-  const strikeSlow = f => 1 + 0.9 * partDamage(f, limbOf(f.action)) + 0.5 * meanUnfold(f);
-  const strikePower = (f, move) => Math.max(0.25, 1 - 0.6 * partDamage(f, limbOf(move)) - 0.3 * meanUnfold(f));
+  const limbOf = (f, move) => MOVES[move]?.fist === 'rarm' ? f.form.armIdx : f.form.legIdx;
+  const strikeSlow = f => 1 + 0.9 * partDamage(f, limbOf(f, f.action)) + 0.5 * meanUnfold(f);
+  const strikePower = (f, move) => Math.max(0.25, 1 - 0.6 * partDamage(f, limbOf(f, move)) - 0.3 * meanUnfold(f));
   // ...and how far a kick can swing at all: the leg lift and the lean back, as a fraction
   // of a healthy kick. Down to half with the legs and the protein gone: at a third the
   // limp leg never left the floor (the foot peaked 1.7 Å up at 90% unfolded).
-  const kickRange = f => Math.max(0.5, 1 - 0.5 * partDamage(f, LEG_IDX) - 0.3 * meanUnfold(f));
+  const kickRange = f => Math.max(0.5, 1 - 0.5 * partDamage(f, f.form.legIdx) - 0.3 * meanUnfold(f));
 
   // Health is how folded the protein still is: 100 intact, 0 fully denatured. It is
   // read off the unfolding, not kept alongside it, so the bar, the colours and the
   // knockout always agree.
-  const meanUnfold = f => f.unfold.reduce((s, v) => s + v, 0) / N;
+  const meanUnfold = f => f.unfold.reduce((s, v) => s + v, 0) / f.unfold.length;
   const health = f => Math.max(0, Math.round(100 * (1 - meanUnfold(f))));
   // pLDDT 100 is intact; fully denatured lands just under 50, AlphaFold's line for
   // disordered, so it reaches the orange band (the palette calls exactly 50 yellow).
@@ -253,6 +290,7 @@
   // Residues that are already fully unfolded pass their share on. A low hit unfolds
   // the legs, until there is no leg left to unfold.
   function wound(b, at, amount, legsOnly, dir = 0) {
+    const { n: N, legs: LEGS } = b.form;
     let budget = amount / 100 * N;
     const weight = new Float32Array(N);
     for (let pass = 0; pass < 8 && budget > 1e-6; pass++) {
@@ -297,7 +335,7 @@
   // spring back through a couple of shrinking bounces, so it is plain where it landed.
   const DENT_RADIUS = 22, DENT_DECAY = 6, DENT_BOUNCE = 26, DENT_LIFE = 0.8;
   function dent(b, at, dir, power) {
-    const w = new Float32Array(N);
+    const N = b.form.n, w = new Float32Array(N);
     for (let i = 0; i < N; i++) {
       const q = b.coords[i], r = Math.hypot(q[0] - at[0], q[1] - at[1], q[2] - at[2]);
       w[i] = Math.exp(-(r * r) / (2 * DENT_RADIUS * DENT_RADIUS));
@@ -324,6 +362,21 @@
       b.setAttribute('aria-pressed', String(on));
     }
   }
+  // Colouring: pLDDT (damage, as AlphaFold would colour confidence) or a rainbow along
+  // the chain, which shows how each protein is threaded. pLDDT unless chosen otherwise.
+  const COLOUR_KEY = 'protein-fighter-colour';
+  let colour = (() => {
+    try { if (localStorage.getItem(COLOUR_KEY) === 'rainbow') return 'rainbow'; } catch {}
+    return 'plddt';
+  })();
+  function applyColour() {
+    for (const b of document.querySelectorAll('[data-colour-choice]')) {
+      const on = b.dataset.colourChoice === colour;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', String(on));
+    }
+    if (viewer) viewer.setColor(colour === 'rainbow' ? 'rainbow' : 'deepmind');   // deepmind: AlphaFold DB pLDDT colours
+  }
 
   function pdbText(a, b) {
     let s = '', n = 1;
@@ -347,7 +400,7 @@
       select: false, box: false, biounit: false,
       rendering: { width: presetWidth * RIBBON_WIDTH, ortho: 0.4 },   // ortho under 0.5: a touch more perspective
     });
-    viewer.setColor('deepmind');   // AlphaFold DB pLDDT colours, here meaning damage
+    applyColour();
     // No ground of its own: the page's floor sits behind the proteins, not over them.
     viewer.setClearColor(true);
     // py2Dmol's fast path: a frame whose secondary structure is unchanged updates the
@@ -357,21 +410,71 @@
   }
 
 
-  // A fixed camera on the arena. Left unset, py2Dmol centres on the running mean
-  // of every frame it has been given, so the view would drift with the fight.
+  // The camera frames the fight. Left unset, py2Dmol centres on the running mean of
+  // every frame it has been given, so the view would drift with the fight; instead it
+  // is placed here every frame: between the two fighters, close when they are close and
+  // pulled back as they part, never past the arena walls, and eased so it glides.
   // Straight on, so neither side looks to have the high ground, and tilted well down
-  // onto the arena so the proteins' depth shows.
-  const CAMERA = { pitch: 0.7, yaw: 0, centerY: 70 };
+  // onto the arena so the proteins' depth shows. The vertical extent is fixed, so on a
+  // landscape screen the fight fills the height as it always did; on a narrow one the
+  // width is what binds, and following the fighters is what keeps them on screen.
+  // Tilted down enough to give the proteins depth, and no more, so the heads stand clear
+  // of the shoulders rather than being looked down onto.
+  const CAMERA = { pitch: 0.5, yaw: 0, centerY: 70, x: 0, halfW: 240, minHalfW: 105, room: 80, halfH: 100 };
+  function frameCamera(dt) {
+    const [a, b] = fighters, xa = barrelX(a), xb = barrelX(b);
+    const edge = ARENA + 60;   // the view may reach this far past the centre, so a fighter at the wall is not at the edge
+    let want = Math.min(edge, Math.max(CAMERA.minHalfW, Math.abs(xa - xb) / 2 + CAMERA.room));
+    let mid = (xa + xb) / 2;
+    // A knockout: push in on the loser as it comes apart.
+    const loser = phase === 'ko' || phase === 'over' ? fighters.find(f => f.hp === 0) : null;
+    if (loser) { want = CAMERA.minHalfW * 0.85; mid = barrelX(loser); }
+    mid = Math.max(-(edge - want), Math.min(edge - want, mid));
+    const k = 1 - Math.exp(-dt * 5), kz = 1 - Math.exp(-dt * 3);
+    CAMERA.x += (mid - CAMERA.x) * k;
+    CAMERA.halfW += (want - CAMERA.halfW) * kz;
+  }
+  // py2Dmol fits the extent into 85% of the stage, whichever of width and height binds:
+  // an aspect of halfW by halfH asks for that many Ångström each way.
   function pinCamera() {
     const cp = Math.cos(CAMERA.pitch), sp = Math.sin(CAMERA.pitch), cy = Math.cos(CAMERA.yaw), sy = Math.sin(CAMERA.yaw);
+    const hx = 0.85 * CAMERA.halfW, hy = CAMERA.halfH, extent = Math.max(hx, hy);
     for (const v of [viewer.viewerState, viewer.objectsData.arena?.viewerState]) {
       if (!v) continue;
-      v.center = { x: 0, y: CAMERA.centerY, z: 0 };
-      v.extent = 100;
-      v.extentAspect = null;
+      v.center = { x: CAMERA.x, y: CAMERA.centerY, z: 0 };
+      v.extent = extent;
+      v.extentAspect = { x: hx / extent, y: hy / extent };
       v.zoom = 1;
       v.rotation = [[cy, 0, sy], [sp * sy, cp, -sp * cy], [-cp * sy, sp, cp * cy]];   // pitch · yaw
     }
+  }
+  // The floor is drawn by the page, as a band: its far edge some way behind the feet,
+  // its near edge in front. Where those lines fall on screen follows the camera, so the
+  // feet stand on the floor at any size of screen.
+  // The feet stand between 20 Å behind the pelvis and 25 Å in front of it.
+  const FLOOR_FAR_Z = -30, FLOOR_NEAR_Z = 28;
+  let floorShown = '';
+  function placeFloor() {
+    const stage = $('stage'), W = stage.clientWidth, H = stage.clientHeight;
+    if (!W || !H) return;
+    const hx = 0.85 * CAMERA.halfW, hy = CAMERA.halfH;
+    const scale = Math.min(0.85 * W / (2 * hx), 0.85 * H / (2 * hy));   // px per Å, as py2Dmol fits it
+    const cp = Math.cos(CAMERA.pitch), sp = Math.sin(CAMERA.pitch);
+    // py2Dmol's projection: the point turned into the camera's frame, then, with its
+    // partial perspective, scaled by focal / (focal - depth).
+    const fl = viewer.viewerState.focalLength || 200, ortho = viewer.viewerState.ortho;
+    const line = z => {
+      const ry = -cp * CAMERA.centerY - sp * z, rz = -sp * CAMERA.centerY + cp * z;   // floor point (y = 0, depth z) in the camera's frame
+      const c = ortho < 1 ? fl / (fl - rz) : 1;
+      return H / 2 - ry * scale * c;
+    };
+    const far = line(FLOOR_FAR_Z), depth = line(FLOOR_NEAR_Z) - far;
+    const key = `${far.toFixed(1)}|${depth.toFixed(1)}`;
+    if (key === floorShown) return;
+    floorShown = key;
+    const arena = document.querySelector('.arena');
+    arena.style.setProperty('--floor-far', far.toFixed(1) + 'px');
+    arena.style.setProperty('--floor-depth', depth.toFixed(1) + 'px');
   }
 
   function draw() {
@@ -379,6 +482,7 @@
     // replaceFrame draws the frame, and (py2Dmol's animation rule) keeps the camera
     // and the mesh where they are, so the cartoon is updated in place, not rebuilt.
     pinCamera();
+    placeFloor();
     viewer.replaceFrame({
       ...template,
       coords: a.coords.concat(b.coords),
@@ -394,12 +498,14 @@
 
   function resetRound() {
     const old = fighters;
-    fighters = [newFighter(-80, 1), newFighter(80, -1)];
+    fighters = [newFighter(-80, 1, FORMS.barrel), newFighter(80, -1, FORMS.helix)];
+    CAMERA.x = 0;
+    clearFinisher();
     time = 99; koTimer = 0; ai = 1.5; hitstop = 0;
     for (const h of held) h.clear();
     for (const f of fighters) f.coords = body(f, clock);
     // The PAE reference is each fighter as it stands at the bell: healthy, in its stance.
-    for (const f of fighters) { f.paeLocal = localPositions(f.coords); f.pae = new Float32Array(PB * PB); }
+    for (const f of fighters) { f.paeLocal = localPositions(f.coords); f.pae = new Float32Array(f.form.pb * f.form.pb); }
     // Then each body starts from wherever the last round left it, heap and all, and pulls
     // itself back together, rather than popping into place.
     if (old) fighters.forEach((f, i) => {
@@ -433,7 +539,7 @@
     if (winner >= 0) wins[winner]++;
     phase = 'over';
     const match = wins.includes(2);
-    overlay(winner < 0 ? 'DRAW' : 'DENATURED', '', match ? null : 'REFOLD');
+    overlay(winner < 0 ? 'DRAW' : `${names()[winner]} WINS`, '', match ? null : 'REFOLD');
     $('overlay').classList.add('ended');   // no veil: the heap keeps settling behind it
     duckMusic(0.12);
     round++;
@@ -515,21 +621,20 @@
     walk(c, B.approach ? toward : 0, dt, 0.5);
   }
 
-  // Bodies push each other only where they actually touch: the two β-barrels, the
-  // torsos, as they are drawn this tick, leaning, lunging and all. Arms and legs pass
-  // by each other (a strike is judged by contact() instead), and a jump clears the
-  // other fighter because its barrel is higher, not because of a height rule.
-  const BARREL = rig.domains.torso;
-  const TOUCH = 7;   // Å: nearest CA of one barrel to the other's, at which they are in contact
+  // Bodies push each other only where they actually touch: the two torsos (the β-barrel,
+  // the helix bundle) as they are drawn this tick, leaning, lunging and all. Arms and
+  // legs pass by each other (a strike is judged by contact() instead), and a jump clears
+  // the other fighter because its torso is higher, not because of a height rule.
+  const TOUCH = 7;   // Å: nearest CA of one torso to the other's, at which they are in contact
   // The CPU's spacing thresholds were tuned as centre distances with contact forced at
   // 42 Å; adding this to the barrel gap keeps each one the same distance from contact.
   const BARREL_SPAN = 42 - TOUCH;
-  const barrelX = f => BARREL.reduce((s, i) => s + f.coords[i][0], 0) / BARREL.length;
+  const barrelX = f => f.form.torso.reduce((s, i) => s + f.coords[i][0], 0) / f.form.torso.length;
   function barrelGap(a, b) {
     let best = Infinity;
-    for (const i of BARREL) {
+    for (const i of a.form.torso) {
       const q = a.coords[i];
-      for (const j of BARREL) {
+      for (const j of b.form.torso) {
         const r = b.coords[j], dx = q[0] - r[0], dy = q[1] - r[1], dz = q[2] - r[2];
         const d = dx * dx + dy * dy + dz * dz;
         if (d < best) best = d;
@@ -541,7 +646,7 @@
   function slide(f, dx) {
     const x = Math.max(-ARENA, Math.min(ARENA, f.x + dx));
     dx = x - f.x; f.x = x;
-    for (let i = 0; i < N; i++) { f.coords[i][0] += dx; f.prev[i][0] += dx; }
+    for (let i = 0; i < f.form.n; i++) { f.coords[i][0] += dx; f.prev[i][0] += dx; }
     return Math.abs(dx);
   }
   function collide(a, b) {
@@ -571,7 +676,7 @@
       f.sinceHit += dt;
       if (f.hp > 0 && f.sinceHit > REFOLD_DELAY) {
         let changed = false;
-        for (let i = 0; i < N; i++) if (f.unfold[i] > 0) { f.unfold[i] = Math.max(0, f.unfold[i] - REFOLD * dt); changed = true; }
+        for (let i = 0; i < f.form.n; i++) if (f.unfold[i] > 0) { f.unfold[i] = Math.max(0, f.unfold[i] - REFOLD * dt); changed = true; }
         if (changed) f.hp = health(f);
       }
     }
@@ -608,6 +713,12 @@
       wound(b, at, m.damage * DAMAGE_SCALE * power, m.low, a.facing);
       dent(b, at, a.facing, m.damage * power);
       b.lastHit = at;
+      // The blow throws the parts about: struck in the head, the head whips on its neck
+      // away from the blow (a hit from behind snaps it forward); struck anywhere, the
+      // arms fly and the legs buckle, a low blow most of all.
+      const high = at[1] > b.motion.hip[1] + b.form.motion.NECK_HEIGHT - 8;
+      const away = a.facing * b.facing < 0 ? -1 : 1;
+      b.form.motion.jolt(b, { head: away * (high ? 24 : 8) * power, arms: away * 5 * power, legs: (m.low ? 6 : 2.5) * power });
       b.stun = m.stun * (0.4 + 0.6 * power); b.action = 'hurt'; b.t = 0; b.squat = 0;
       if (b.y > 0) b.vy = Math.max(b.vy, 260);   // hit in the air: popped up, then falls
       hitstop = 0.05 + m.damage * 0.003 * power;
@@ -617,7 +728,7 @@
     });
 
     if (fighters.some(f => f.hp === 0) || time === 0) {
-      phase = 'ko'; koTimer = 0;
+      phase = 'ko'; koTimer = 0; finished = false;
       for (const f of fighters) if (f.hp === 0) denature(f);
       if (!fighters.some(f => f.hp === 0)) announce('TIME');
       sfx.ko();
@@ -630,8 +741,9 @@
   // residue it reaches lets go of the heap, with a shove outward as the fold breaks,
   // until a tangle lies spread on the floor.
   const COLLAPSE = 0.45, UNFOLD = 1.6, KO_HOLD = 3.4;   // seconds
+  let finished = false;   // the finisher has been called this knockout
   function denature(f) {
-    const at = f.lastHit || f.coords[180];
+    const N = f.form.n, at = f.lastHit || f.coords[f.form.mid];
     let brk = 0, bestD = Infinity;
     for (let i = 0; i < N; i++) {
       const q = f.coords[i], d = Math.hypot(q[0] - at[0], q[1] - at[1], q[2] - at[2]);
@@ -642,7 +754,7 @@
     f.koBurst = false;
   }
   function letGo(f) {
-    const c = f.coords;
+    const c = f.coords, N = f.form.n;
     let cx = 0, cy = 0, cz = 0;
     for (const q of c) { cx += q[0] / N; cy += q[1] / N; cz += q[2] / N; }
     for (let i = 0; i < N; i++) {
@@ -661,7 +773,7 @@
       if (f.hp === 0 && f.koWave) {
         if (koTimer > COLLAPSE && !f.koBurst) { f.koBurst = true; letGo(f); }
         const front = (koTimer - COLLAPSE) / UNFOLD;   // how far the wave has run, in chain lengths
-        for (let i = 0; i < N; i++) {
+        for (let i = 0; i < f.form.n; i++) {
           f.unfold[i] = Math.min(1, f.unfold[i] + dt * 0.55);
           f.koLoose[i] = clamp01((front - f.koWave[i]) * 2.5);
         }
@@ -673,6 +785,8 @@
       }
       f.coords = body(f, clock);
     }
+    // Once the loser has dropped into its heap, the word.
+    if (phase === 'ko' && !finished && koTimer > COLLAPSE + 0.1 && fighters.some(f => f.hp === 0)) { finished = true; finisher('DENATURED'); }
     if (phase === 'ko' && koTimer > KO_HOLD) endRound();
   }
 
@@ -684,6 +798,23 @@
     el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
   }
   const announce = text => flash([0, 0, 0], text);
+  // The finisher, Mortal Kombat style: the word slams in a letter at a time over the
+  // collapsing loser, the arena shakes, and the announcer growls it.
+  function finisher(text) {
+    const el = $('finish');
+    el.innerHTML = '';
+    [...text].forEach((ch, i) => {
+      const s = document.createElement('span');
+      s.textContent = ch; s.style.animationDelay = (i * 0.075) + 's';
+      el.appendChild(s);
+    });
+    el.hidden = false; el.classList.remove('settle');
+    setTimeout(() => el.classList.add('settle'), text.length * 75 + 350);
+    const arena = document.querySelector('.arena');
+    arena.classList.remove('shake'); void arena.offsetWidth; arena.classList.add('shake');
+    sfx.denatured();
+  }
+  const clearFinisher = () => { const el = $('finish'); el.hidden = true; el.innerHTML = ''; el.classList.remove('settle'); };
 
   // The health bar is the average pLDDT, in the same AlphaFold bands as the protein.
   const bandColor = plddt => plddt >= 90 ? '#0d57d3' : plddt >= 70 ? '#6acbf1' : plddt >= 50 ? '#fed936' : '#fd7d4d';
@@ -700,13 +831,12 @@
   // Moving the whole protein changes nothing; an arm swinging lights up arm against body
   // and body against arm; a stretch that unfolds scrambles its own frames, so its rows go
   // white against everything. Every residue against every residue, averaged four by four
-  // into the 91-pixel map: the row is the residue aligned on, the column the one scored.
-  const PAE_BIN = 4, PB = Math.ceil(N / PAE_BIN), PAE_MAX = 30;
-  const PAE_COUNT = new Float32Array(PB * PB);   // residue pairs pooled into each pixel
-  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) PAE_COUNT[(i / PAE_BIN | 0) * PB + (j / PAE_BIN | 0)]++;
-  const paeSum = new Float32Array(PB * PB), paeFrames = new Float64Array(N * 12);
+  // into a map a pixel per PAE_BIN residues each way: the row is the residue aligned on,
+  // the column the one scored.
+  const PAE_MAX = 30;
   // Residue i's frame, twelve numbers: the origin, then three orthonormal axes.
   function localFrames(coords, F) {
+    const N = coords.length;
     for (let i = 0; i < N; i++) {
       const c = Math.min(N - 2, Math.max(1, i));   // the two chain ends borrow their neighbour's frame
       const a = coords[c - 1], o = coords[c], b = coords[c + 1];
@@ -725,7 +855,7 @@
   }
   // Every residue's position in every residue's frame, N x N x 3: the reference.
   function localPositions(coords) {
-    const F = localFrames(coords, new Float64Array(N * 12)), L = new Float32Array(N * N * 3);
+    const N = coords.length, F = localFrames(coords, new Float64Array(N * 12)), L = new Float32Array(N * N * 3);
     for (let i = 0; i < N; i++) {
       const k = i * 12;
       for (let j = 0, m = i * N * 3; j < N; j++, m += 3) {
@@ -739,6 +869,7 @@
   }
   function updatePAE(f) {
     if (!f.paeLocal) return;
+    const { n: N, pb: PB, paeCount: PAE_COUNT, paeSum, paeFrames } = f.form;
     const P = f.coords, F = localFrames(P, paeFrames), L = f.paeLocal;
     paeSum.fill(0);
     for (let i = 0; i < N; i++) {
@@ -761,8 +892,9 @@
     }
   }
   function drawPAE(f, i) {
-    const canvas = $('pae' + i);
+    const canvas = $('pae' + i), PB = f.form.pb;
     if (!canvas || !f.pae) return;
+    if (canvas.width !== PB) canvas.width = canvas.height = PB;   // a pixel per PAE_BIN residues, whatever the protein's length
     const g = canvas.getContext('2d'), img = g.createImageData(PB, PB), px = img.data;
     for (let k = 0; k < PB * PB; k++) {
       const t = f.pae[k] / PAE_MAX, o = k * 4;   // dark green (confident) → white
@@ -906,6 +1038,16 @@
       tone(55, 40, 0.9, { gain: 0.35, delay: 0.36 });
       noise(0.5, 5000, 300, { gain: 0.2, delay: 0.36 });
     },
+    denatured() {   // the announcer: three low, rough syllables, DE-NA-TURED, and a hit under the last
+      for (const [f0, f1, dur, delay, g] of [[112, 84, 0.22, 0, 0.5], [100, 78, 0.22, 0.26, 0.5], [92, 46, 0.7, 0.52, 0.6]]) {
+        tone(f0, f1, dur, { type: 'sawtooth', gain: g * 0.55, delay });
+        tone(f0 * 1.5, f1 * 1.5, dur, { type: 'square', gain: g * 0.12, delay });
+        tone(f0 / 2, f1 / 2, dur, { gain: g * 0.7, delay });
+        noise(dur, 900, 250, { gain: g * 0.25, filter: 'bandpass', delay });
+      }
+      tone(50, 30, 1.2, { gain: 0.6, delay: 0.55 });
+      noise(0.6, 2500, 120, { gain: 0.35, delay: 0.55 });
+    },
     ko() {     // a long collapse, and a second impact as it hits the floor
       tone(260, 28, 1.4, { type: 'sawtooth', gain: 0.18 });
       tone(60, 25, 1.8, { gain: 0.5 });
@@ -1005,6 +1147,14 @@
     if (!sound) stopMusic();
     else if (phase !== 'ready') { startMusic(); if (phase !== 'playing') duckMusic(0.12); }
   };
+  for (const b of document.querySelectorAll('[data-colour-choice]')) {
+    b.onclick = () => {
+      if (b.dataset.colourChoice === colour) return;
+      colour = b.dataset.colourChoice;
+      try { localStorage.setItem(COLOUR_KEY, colour); } catch {}
+      applyColour();
+    };
+  }
   for (const b of document.querySelectorAll('[data-theme-choice]')) {
     b.onclick = () => {
       if (b.dataset.themeChoice === theme) return;
@@ -1015,6 +1165,15 @@
       startViewer(fighters[0].coords, fighters[1].coords);
     };
   }
+
+  // The window resized: py2Dmol resizes its canvas, but the cartoon it holds on the GPU
+  // for in-place updates keeps the old projection, so once the resizing settles the
+  // scene is rebuilt at the new size, as it is for a change of theme.
+  let resizeTimer = null;
+  addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { if (fighters) startViewer(fighters[0].coords, fighters[1].coords); }, 150);
+  });
 
   // ----------------------------------------------------------------------- loop
   let last = performance.now(), acc = 0;
@@ -1031,6 +1190,7 @@
       acc += dt;
       while (acc >= DT && phase !== 'paused') {
         clock += DT;
+        frameCamera(DT);
         if (phase === 'playing') step(DT);
         else if (phase === 'ko' || phase === 'over') stepKO(DT);   // after the round, the heap keeps settling
         else for (const f of fighters) f.coords = body(f, clock);   // idle breathing behind the menus
@@ -1049,7 +1209,7 @@
     applyTheme();
     resetRound();
     startViewer(fighters[0].coords, fighters[1].coords);
-    window.proteinFighter = { get fighters() { return fighters; }, get mode() { return mode; }, get viewer() { return viewer; }, camera: CAMERA, rig, barrelGap, updatePAE, motion };   // for poking at from the console
+    window.proteinFighter = { get fighters() { return fighters; }, get mode() { return mode; }, get viewer() { return viewer; }, camera: CAMERA, forms: FORMS, barrelGap, updatePAE };   // for poking at from the console
     $('one').disabled = false;
     requestAnimationFrame(frame);
   } catch (e) {
