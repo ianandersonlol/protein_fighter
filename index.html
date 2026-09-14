@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Protein Fighter</title>
+<link rel="icon" href="data:,">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; height: 100vh; overflow: hidden; background: #ffffff; color: #1d1b18;
+         font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .arena { position: relative; width: 100%; height: 100%; }
+  #stage { position: absolute; inset: 0; pointer-events: none; }
+  /* The camera looks down a little, so the floor is a band, not a line: its far edge
+     sits above the feet line and its near edge below, and a foot nearer the camera
+     lands lower in it. */
+  .floor { position: absolute; left: 0; right: 0; top: 72.9%; bottom: 0; pointer-events: none;
+           background: linear-gradient(#1d1b1808, #1d1b1814 7vh, #0000 7vh),
+                       repeating-linear-gradient(90deg, #0000 0 38px, #1d1b180d 38px 40px); }
+  .floor::before { content: ''; position: absolute; left: 0; right: 0; top: 0; border-top: 1px solid #1d1b1840; }
+  .floor::after { content: ''; position: absolute; left: 0; right: 0; top: 7vh; border-top: 2px solid #1d1b18; }
+
+  .hud { position: absolute; top: 18px; left: 24px; right: 24px; display: flex; gap: 24px; align-items: start; z-index: 2; }
+  .player { flex: 1; }
+  .player b { font-size: 22px; font-style: italic; letter-spacing: -0.5px; }
+  .player small { display: block; font-size: 10px; letter-spacing: 1px; opacity: 0.7; margin-top: 4px; }
+  /* Health is the average pLDDT; game.js colours the fill with the AlphaFold band. */
+  .bar { height: 16px; border: 2px solid #1d1b18; margin-top: 6px; transform: skewX(-14deg); background: #fff8; }
+  .bar i { display: block; height: 100%; width: 100%; background: #0d57d3; transition: width 0.12s, background-color 0.3s; }
+  .p2 { text-align: right; }
+  .p2 .bar i { margin-left: auto; }
+  .timer { text-align: center; font-size: 40px; line-height: 1; min-width: 70px; }
+  .timer small { display: block; font-size: 10px; margin-top: 6px; letter-spacing: 1px; }
+
+  #impact { position: absolute; top: 34%; transform: translateX(-50%); font-size: 30px; font-weight: 900; font-style: italic;
+            color: #1d1b18; opacity: 0; pointer-events: none; z-index: 3; white-space: nowrap; }
+  #impact.pop { animation: pop 0.45s ease-out; }
+  @keyframes pop { 0% { opacity: 1; transform: translateX(-50%) scale(1.5); } 100% { opacity: 0; transform: translate(-50%, -30px) scale(1); } }
+
+  #overlay { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: 12px;
+             background: #ffffffcc; z-index: 4; padding-inline: 16px; }
+  #overlay[hidden] { display: none; }
+  #overlay h1 { margin: 0; font-size: clamp(32px, 7vw, 72px); font-style: italic; letter-spacing: -2px; }
+  #overlay p { margin: 0; }
+  #modes button + button { margin-left: 8px; }
+  button { font: inherit; cursor: pointer; border: 2px solid #1d1b18; background: #1d1b18; color: #ffffff; padding: 10px 22px; letter-spacing: 1px; }
+  button:disabled { opacity: 0.5; cursor: wait; }
+  kbd { border: 1px solid #1d1b18; padding: 0 4px; }
+
+  /* Controls: P1 on the left of the keyboard, P2 on the right. */
+  .pad { position: absolute; bottom: 30px; z-index: 5; display: grid; gap: 5px; font-size: 10px; letter-spacing: 0.5px; }
+  .pad .who { font-size: 12px; font-style: italic; }
+  .pad .row { display: flex; gap: 10px; align-items: end; }
+  .pad p { margin: 0; opacity: 0.6; }
+  .pad[hidden] { display: none; }
+  .left { left: 24px; justify-items: start; }
+  .right { right: 24px; justify-items: end; text-align: right; }
+  .dirs { display: grid; grid-template-areas: ". u ." "l d r"; gap: 4px; }
+  .hits { display: flex; gap: 4px; }
+  .cap { width: 46px; height: 42px; padding: 0; display: grid; place-content: center; gap: 1px; letter-spacing: 0;
+         background: #fff; color: #1d1b18; border: 2px solid #1d1b18; border-bottom-width: 4px; border-radius: 4px;
+         touch-action: none; user-select: none; -webkit-user-select: none; }
+  .cap b { font-size: 15px; line-height: 1; }
+  .cap small { font-size: 8px; text-transform: uppercase; opacity: 0.6; }
+  .cap.down { background: #1d1b18; color: #fff; border-bottom-width: 2px; transform: translateY(2px); }
+  #sound { background: none; color: inherit; border: 0; padding: 0; font-size: 10px; letter-spacing: 0.5px; text-decoration: underline; }
+  .credit { position: absolute; left: 0; right: 0; bottom: 8px; z-index: 5; text-align: center; font-size: 12px;
+            letter-spacing: 0.5px; opacity: 0.55; pointer-events: none; }
+  @media (pointer: coarse) {
+    .cap { width: 54px; height: 50px; }
+    .pad p { display: none; }
+  }
+  @media (max-width: 640px) {
+    .cap { width: 40px; height: 44px; }
+    .left { left: 8px; }
+    .right { right: 8px; }
+    .pad .row { flex-direction: column; align-items: inherit; }
+    .pad p { display: none; }
+    .credit { bottom: auto; top: 96px; }
+  }
+
+  .arena.shake { animation: shake 0.22s linear; }
+  @keyframes shake {
+    20% { transform: translate(var(--shake), calc(var(--shake) * -0.5)); }
+    40% { transform: translate(calc(var(--shake) * -1), calc(var(--shake) * 0.4)); }
+    60% { transform: translate(calc(var(--shake) * 0.6), 0); }
+    80% { transform: translate(calc(var(--shake) * -0.3), 0); }
+  }
+</style>
+</head>
+<body>
+<main class="arena">
+  <div id="stage"></div>
+  <div class="floor"></div>
+
+  <div class="hud">
+    <div class="player"><b>P1</b><small><span id="fold0">pLDDT 100</span> · <span id="wins0">○ ○</span></small><div class="bar"><i id="hp0"></i></div></div>
+    <div class="timer"><span id="timer">99</span><small id="round">ROUND 01</small></div>
+    <div class="player p2"><b id="name1">CPU</b><small><span id="wins1">○ ○</span> · <span id="fold1">pLDDT 100</span></small><div class="bar"><i id="hp1"></i></div></div>
+  </div>
+
+  <div id="impact"></div>
+
+  <div id="overlay">
+    <h1 id="title">PROTEIN FIGHTER</h1>
+    <p id="msg">Every hit unfolds your opponent. First to two rounds.</p>
+    <p id="modes"><button id="one" disabled>1 PLAYER</button><button id="two" disabled>2 PLAYERS</button></p>
+    <p><button id="go" hidden>FIGHT</button></p>
+  </div>
+
+  <div class="pad left">
+    <b class="who">P1</b>
+    <div class="row">
+      <div class="dirs">
+        <button class="cap" data-key="w" tabindex="-1" style="grid-area: u"><b>W</b><small>jump</small></button>
+        <button class="cap" data-key="a" tabindex="-1" style="grid-area: l"><b>A</b><small>left</small></button>
+        <button class="cap" data-key="s" tabindex="-1" style="grid-area: d"><b>S</b><small>crouch</small></button>
+        <button class="cap" data-key="d" tabindex="-1" style="grid-area: r"><b>D</b><small>right</small></button>
+      </div>
+      <div class="hits">
+        <button class="cap" data-key="f" tabindex="-1"><b>F</b><small>punch</small></button>
+        <button class="cap" data-key="g" tabindex="-1"><b>G</b><small>kick</small></button>
+      </div>
+    </div>
+    <p>hold back to block · double-tap to run · crouch or jump to change an attack · <kbd>Esc</kbd> pause · <button id="sound" tabindex="-1">SOUND OFF</button></p>
+  </div>
+
+  <!-- P2's keys, shown only in a two-player game -->
+  <div class="pad right" id="p2pad" hidden>
+    <b class="who">P2</b>
+    <div class="row">
+      <div class="hits">
+        <button class="cap" data-key="." tabindex="-1"><b>.</b><small>punch</small></button>
+        <button class="cap" data-key="/" tabindex="-1"><b>/</b><small>kick</small></button>
+      </div>
+      <div class="dirs">
+        <button class="cap" data-key="arrowup" tabindex="-1" style="grid-area: u"><b>↑</b><small>jump</small></button>
+        <button class="cap" data-key="arrowleft" tabindex="-1" style="grid-area: l"><b>←</b><small>left</small></button>
+        <button class="cap" data-key="arrowdown" tabindex="-1" style="grid-area: d"><b>↓</b><small>crouch</small></button>
+        <button class="cap" data-key="arrowright" tabindex="-1" style="grid-area: r"><b>→</b><small>right</small></button>
+      </div>
+    </div>
+    <p>hold back to block · double-tap to run</p>
+  </div>
+
+  <div class="credit">character inspired by Hannes Stark and Alex Waldherr</div>
+</main>
+
+<script src="vendor/py2Dmol.embed.min.js"></script>
+<script src="rig_data.js"></script>
+<script src="rig.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
