@@ -495,7 +495,8 @@
   let mode = 1;                           // 1: you vs the CPU · 2: two players, one keyboard · 3: a remote challenger (net.js)
   // Remote play. Hosting: `link` streams state to the guest, who drives P2 through held[1].
   // A guest page (?join=…) runs no game of its own: it draws the host's state and sends keys.
-  const net = { link: null, guest: !!window.Net?.joinId(), events: [], seq: 0, fresh: false, paeReset: true };
+  const net = { link: null, guest: !!window.Net?.joinId(), events: [], seq: 0, fresh: false, paeReset: true,
+    lastUnfold: null, prev: null, next: null, at: 0, gap: 1 / 15, pkts: 0, bytes: 0, rate: '', tick: 0 };
   const netEvent = (...e) => { if (net.link) net.events.push(e); };
   let fighters, wins = [0, 0], round = 1, time = 60, phase = 'ready', clock = 0, koTimer = 0, ai = 0, hitstop = 0;
   const names = () => ['P1', 'P2'];   // the CPU is P2 too
@@ -1199,8 +1200,8 @@
     last = now;
     if (net.guest) {
       frameCamera(dt);
-      if (net.fresh) { net.fresh = false; draw(); fighters.forEach((f, i) => { updatePAE(f); drawPAE(f, i); }); }
-      hud();
+      if (blendState()) { draw(); fighters.forEach((f, i) => { updatePAE(f); drawPAE(f, i); }); }
+      hud(); netStatus(now);
       requestAnimationFrame(frame);
       return;
     }
@@ -1223,50 +1224,66 @@
     if (moved) {
       draw();
       fighters.forEach((f, i) => { updatePAE(f); drawPAE(f, i); });   // live PAE maps
-      if (net.link && (++net.seq & 1) === 0) sendState();
+      if (net.link && ++net.seq % 4 === 0) sendState();   // 15 packets a second; the guest interpolates
     }
-    hud();
+    hud(); if (net.link) netStatus(now);
     requestAnimationFrame(frame);
   }
 
   // ---------------------------------------------------------------- remote play
+  // A line under the switches while remote: packets and bytes a second, and the link's
+  // state, so a stall or a slow line shows for what it is.
+  function netStatus(now) {
+    if (now - net.tick < 1000) return;
+    const secs = (now - net.tick) / 1000; net.tick = now;
+    const n = net.guest ? net.pkts : (net.tx || 0) - (net.txLast || 0); net.txLast = net.tx || 0;
+    const st = window.Net.status();
+    const line = `${net.guest ? 'guest' : 'host'} · ${(n / secs).toFixed(0)} pkt/s · ${(net.bytes / secs / 1024).toFixed(0)} KB/s · ${st ? (st.open ? 'link ' + st.ice : 'no link') : 'no link'}${st && st.queued > 8192 ? ' · queued ' + (st.queued / 1024 | 0) + ' KB' : ''}`;
+    net.pkts = 0; net.bytes = 0;
+    setText('netstat', line);
+  }
   // The state the guest needs to draw the fight: every residue's position (0.05 Å
   // steps in 16 bits) and unfolding (a byte), the numbers on the HUD, what the overlay
   // says, and what happened since the last packet (callouts, the finisher, sounds).
   function sendState() {
     const [a, b] = fighters, n = a.form.n + b.form.n;
-    const bytes = new Uint8Array(n * 7), xyz = new Int16Array(bytes.buffer, 0, n * 3);
-    let k = 0, u = n * 6;
+    // The unfolding changes only on a hit or as it refolds, so it goes only when it did.
+    const unfold = new Uint8Array(n);
+    let u = 0;
+    for (const f of fighters) for (let i = 0; i < f.form.n; i++) unfold[u++] = Math.round(f.unfold[i] * 255);
+    const changed = !net.lastUnfold || unfold.some((v, i) => v !== net.lastUnfold[i]);
+    if (changed) net.lastUnfold = unfold;
+    const bytes = new Uint8Array(n * (changed ? 7 : 6)), xyz = new Int16Array(bytes.buffer, 0, n * 3);
+    let k = 0;
     for (const f of fighters) for (let i = 0; i < f.form.n; i++) {
       const q = f.coords[i];
       xyz[k++] = Math.round(q[0] * 20); xyz[k++] = Math.round(q[1] * 20); xyz[k++] = Math.round(q[2] * 20);
-      bytes[u++] = Math.round(f.unfold[i] * 255);
     }
+    if (changed) bytes.set(unfold, n * 6);
     const h = {
       ph: phase, t: time, r: round, w: wins, hp: [a.hp, b.hp], x: [a.x, b.x], n: [a.form.n, b.form.n],
       ov: { on: !$('overlay').hidden, ti: $('title').hidden ? '' : $('title').textContent, ms: $('msg').hidden ? '' : $('msg').textContent, end: $('overlay').classList.contains('ended') },
       ev: net.events,
     };
     net.events = [];
-    net.tx = (net.tx || 0) + 1;
+    net.tx = (net.tx || 0) + 1; net.bytes += bytes.length;
     net.link.send({ h, c: bytes });
   }
   function applyState(m) {
     const { h, c } = m || {};
-    net.rx = (net.rx || 0) + 1; net.last = { type: c && c.constructor && c.constructor.name, len: c && (c.byteLength ?? c.length), keys: m && Object.keys(m) };
+    net.rx = (net.rx || 0) + 1;
     if (!h || !c) return;
     const bytes = c instanceof Uint8Array ? c : new Uint8Array(c), n = h.n[0] + h.n[1];
-    if (bytes.length !== n * 7 || fighters[0].form.n !== h.n[0] || fighters[1].form.n !== h.n[1]) return;
-    const xyz = new Int16Array(bytes.buffer, bytes.byteOffset, n * 3);
-    let k = 0, u = n * 6;
-    fighters.forEach((f, j) => {
-      for (let i = 0; i < f.form.n; i++) {
-        const q = f.coords[i];
-        q[0] = xyz[k++] / 20; q[1] = xyz[k++] / 20; q[2] = xyz[k++] / 20;
-        f.unfold[i] = bytes[u++] / 255;
-      }
-      f.hp = h.hp[j]; f.x = h.x[j];
-    });
+    if ((bytes.length !== n * 7 && bytes.length !== n * 6) || fighters[0].form.n !== h.n[0] || fighters[1].form.n !== h.n[1]) return;
+    net.bytes += bytes.length; net.pkts++;
+    // Two snapshots are kept and the frame drawn is slid from the older to the newer, so
+    // the guest moves smoothly at 60 fps on 15 packets a second, one packet behind.
+    const now = performance.now() / 1000;
+    if (net.next) { net.gap = Math.min(0.25, Math.max(0.03, now - net.at)); net.prev = net.next; }
+    net.next = new Int16Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + n * 6)); net.at = now;
+    if (!net.prev) net.prev = net.next;
+    if (bytes.length === n * 7) { let u = n * 6; for (const f of fighters) for (let i = 0; i < f.form.n; i++) f.unfold[i] = bytes[u++] / 255; }
+    fighters.forEach((f, j) => { f.hp = h.hp[j]; f.x = h.x[j]; });
     phase = h.ph; time = h.t; round = h.r; wins = h.w;
     for (const e of h.ev || []) {
       if (e[0] === 'flash') flash([e[1], 0, 0], e[2]);
@@ -1279,6 +1296,19 @@
     $('msg').textContent = h.ov.ms; $('msg').hidden = !h.ov.ms;
     $('overlay').hidden = !h.ov.on; $('overlay').classList.toggle('ended', h.ov.end);
     net.fresh = true;
+  }
+  // The guest's coordinates this frame: between the two latest snapshots.
+  function blendState() {
+    if (!net.next) return false;
+    const t = Math.min(1, (performance.now() / 1000 - net.at) / net.gap), a = net.prev, b = net.next;
+    let k = 0;
+    for (const f of fighters) for (let i = 0; i < f.form.n; i++) {
+      const q = f.coords[i];
+      q[0] = (a[k] + (b[k] - a[k]) * t) / 20; k++;
+      q[1] = (a[k] + (b[k] - a[k]) * t) / 20; k++;
+      q[2] = (a[k] + (b[k] - a[k]) * t) / 20; k++;
+    }
+    return true;
   }
   // A guest's keys go to the host; strikes as presses, directions as held or released.
   function guestPress(k) {
@@ -1304,7 +1334,7 @@
       onGuest: () => { $('qr').hidden = true; $('modes').hidden = false; start(3); },
       onInput: hostInput,
       onClose: () => { held[1].clear(); if (phase === 'playing') { phase = 'paused'; duckMusic(0.08); } overlay('CHALLENGER LEFT', '', 'MENU'); $('go').onclick = () => { $('go').onclick = () => start(); window.Net.stop(); net.link = null; phase = 'ready'; mode = 1; overlay('', '', null); }; },
-      onError: msg => { $('title').textContent = 'NO CONNECTION'; $('msg').textContent = msg; $('msg').hidden = false; $('qr').hidden = true; $('modes').hidden = false; window.Net.stop(); net.link = null; },
+      onError: msg => { window.Net.stop(); net.link = null; mode = 3; overlay('NO CONNECTION', msg + ' Press START to try again.', null); },
     });
     if (!net.link) { $('modes').hidden = false; $('qr').hidden = true; }
   }
@@ -1328,7 +1358,7 @@
       onOpen: () => { $('title').textContent = 'CONNECTED'; $('msg').textContent = 'waiting for the host'; },
       onState: applyState,
       onClose: () => { overlay('DISCONNECTED', '', 'RELOAD'); $('go').hidden = false; $('go').onclick = () => location.reload(); },
-      onError: msg => { overlay('NO CONNECTION', msg, 'RELOAD'); $('go').hidden = false; $('go').onclick = () => location.reload(); },
+      onError: msg => { overlay('NO CONNECTION', msg, 'RETRY'); $('go').hidden = false; $('go').onclick = () => location.reload(); },
     });
     net.send = link ? link.send : null;
   }

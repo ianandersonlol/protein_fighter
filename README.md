@@ -43,6 +43,12 @@ keyboard. The host runs the game and streams every residue's position to the gue
 thirty times a second over a WebRTC data channel; the guest sends only its key presses.
 The connection is set up through PeerJS's public signaling server, so both devices need
 internet even on the same Wi-Fi, and the page loads PeerJS and a QR library from unpkg.
+The two browsers then talk directly where they can, or through PeerJS's relays where
+they can't. The host streams fifteen packets a second (about 5 KB each) and the guest
+interpolates between them; a status line under the switches shows the packet rate, the
+bandwidth and the link's state on both sides. If you have a TURN server of your own,
+open the game as `?turn=turn:host:port&tu=user&tp=password` before pressing REMOTE and
+the join link carries it to the guest. A connection that fails says what the browser saw.
 
 | | P1 (left hand) | P2 (right hand) |
 | --- | --- | --- |
