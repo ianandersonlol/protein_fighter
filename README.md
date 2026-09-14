@@ -31,17 +31,15 @@ Pick 1 player (against the CPU) or 2 players on one keyboard.
 | punch | F | . (or numpad 1) |
 | kick | G | / (or numpad 2) |
 
-Playing the CPU, both sets drive P1, and J / K punch and kick as well. Each round the CPU
-squares up and blocks, but does not attack until you do.
+Playing the CPU, both sets drive P1, and J / K punch and kick as well.
 
-- Walk left and right, double-tap to run; hold away from your opponent to block
+- Walk left and right
 - Jump: tap for a short hop, hold for a full jump that clears the other fighter; add a
   direction to jump forward or back
-- Crouch; crouch and hold back to block low attacks
+- Crouch
 - Punch and kick change with what you are doing. Crouching they become low attacks,
-  which unfold only the legs and must be blocked crouching. In the air they hit from
-  above and must be blocked standing. Pressing jump and an attack together gives
-  the air attack, whichever lands first
+  which unfold only the legs. In the air they hit from above. Pressing jump and an
+  attack together gives the air attack, whichever lands first
 - Left alone for two seconds, a protein slowly refolds
 - Reading the colours: each protein is coloured by pLDDT, AlphaFold's per-residue
   confidence (dark blue confident, orange disordered). The map under each health bar is
@@ -68,7 +66,10 @@ Music and effects are synthesised in the browser with WebAudio; SOUND ON/OFF tog
 ## Files
 
 - `index.html` — page, HUD, styles
-- `game.js` — combat, CPU, poses, unfolding, and the py2Dmol scene
+- `game.js` — combat, CPU, damage and unfolding, the body physics, PAE, sound, and the
+  py2Dmol scene
+- `motion.js` — how a fighter moves, in one pass: pose on springs, hips, planted feet that
+  step, two-bone leg IK, then the rig
 - `rig.js` — forward kinematics for the humanoid protein (from `../dance`)
 - `rig_data.js` — the humanoid v8 C-alpha scaffold and joint pivots (from `../dance`)
 

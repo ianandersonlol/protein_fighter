@@ -62,8 +62,10 @@
   #overlay.ended { background: transparent; }   /* round over: nothing hides the settling heap */
   #overlay h1 { margin: 0; font-size: clamp(32px, 7vw, 72px); font-style: italic; letter-spacing: -2px; }
   #overlay p { margin: 0; }
-  #overlay .learn { font-size: 12px; line-height: 1.5; opacity: 0.75; max-width: 640px; margin-inline: auto; }
-  #modes button + button { margin-left: 8px; }
+  /* 1 or 2 players: a two-button switch under START, the chosen one filled in. */
+  .players { display: inline-flex; margin-top: 14px; border: 2px solid var(--ink); border-radius: 999px; overflow: hidden; }
+  .players button { background: transparent; color: var(--ink); border: 0; padding: 5px 12px; font-size: 11px; letter-spacing: 1px; }
+  .players button.on { background: var(--ink); color: var(--bg); }
   button { font: inherit; cursor: pointer; border: 2px solid var(--ink); background: var(--ink); color: var(--bg); padding: 10px 22px; letter-spacing: 1px; }
   button:disabled { opacity: 0.5; cursor: wait; }
   kbd { border: 1px solid var(--ink); padding: 0 4px; }
@@ -96,6 +98,8 @@
   .theme-switch button:focus:not(:focus-visible) { outline: none; }
   .credit { position: absolute; left: 0; right: 0; bottom: 8px; z-index: 5; text-align: center; font-size: 12px;
             letter-spacing: 0.5px; opacity: 0.55; pointer-events: none; }
+  .legend { position: absolute; left: 0; right: 0; bottom: 28px; z-index: 5; text-align: center; font-size: 11px;
+            opacity: 0.5; pointer-events: none; }
   @media (pointer: coarse) {
     .cap { width: 54px; height: 50px; }
     .pad p { display: none; }
@@ -107,6 +111,7 @@
     .pad .row { flex-direction: column; align-items: inherit; }
     .pad p { display: none; }
     .credit { bottom: auto; top: 318px; }
+    .legend { display: none; }
     .pae canvas { width: 64px; height: 64px; }
     .pae small { display: none; }
   }
@@ -132,12 +137,10 @@
 
   <div id="impact"></div>
 
-  <div id="overlay">
-    <h1 id="title">PROTEIN FIGHTER</h1>
-    <p id="msg">Every hit unfolds your opponent. First to two rounds.</p>
-    <p class="learn">The protein's colour is its <b>pLDDT</b>, AlphaFold's per-residue confidence: dark blue is confident, orange is disordered.<br>
-      The corner maps are <b>PAE</b>: line the protein up on one residue (a row), and each column is how far another residue sits from where it should be, green at 0 Å, white at 30 Å.</p>
-    <p id="modes"><button id="one" disabled>1 PLAYER</button><button id="two" disabled>2 PLAYERS</button></p>
+  <div id="overlay" class="ended">
+    <h1 id="title" hidden></h1>
+    <p id="msg" hidden></p>
+    <p id="modes"><button id="one" disabled>START</button><br><span class="players" role="group" aria-label="Players"><button data-players="1" tabindex="-1" class="on">1 PLAYER</button><button data-players="2" tabindex="-1">2 PLAYERS</button></span></p>
     <p><button id="go" hidden>FIGHT</button></p>
   </div>
 
@@ -155,7 +158,7 @@
         <button class="cap" data-key="g" tabindex="-1"><b>G</b><small>kick</small></button>
       </div>
     </div>
-    <p>hold back to block · double-tap to run · crouch or jump to change an attack · <kbd>Esc</kbd> pause ·
+    <p><kbd>Esc</kbd> pause ·
       <button class="link" id="sound" tabindex="-1">SOUND ON</button></p>
   </div>
 
@@ -174,15 +177,16 @@
         <button class="cap" data-key="arrowright" tabindex="-1" style="grid-area: r"><b>→</b><small>right</small></button>
       </div>
     </div>
-    <p>hold back to block · double-tap to run</p>
   </div>
 
+  <div class="legend">Colour: <b>pLDDT</b> (blue confident, orange disordered) · corner maps: <b>PAE</b> (green 0 Å, white 30 Å)</div>
   <div class="credit">character inspired by Hannes Stark and Alex Waldherr</div>
 </main>
 
 <script src="vendor/py2Dmol.embed.min.js"></script>
 <script src="rig_data.js"></script>
 <script src="rig.js"></script>
+<script src="motion.js"></script>
 <script src="game.js"></script>
 </body>
 </html>
