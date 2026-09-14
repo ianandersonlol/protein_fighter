@@ -93,9 +93,13 @@ Playing the CPU, both sets drive P1, and J / K punch and kick as well.
   body. A stretch that unfolds goes white along its rows but not its columns: lined up on
   a disordered residue, nothing else can be placed, while the folded body still places
   the loose chain roughly where it hangs. It updates live
-- Damage is local. Unfolded legs walk, run and jump slower and kick weaker, but still
-  work; unfolded arms punch weaker. A protein whose legs are gone can still fight with
-  its upper body, and only a protein unfolded all over is knocked out
+- Damage is local, and felt by the limb that took it. A hit unfolds a patch around the
+  impact, wider for a heavier blow, on the struck side, and deepest where the chain is
+  already loose. A leg that has taken the kicks limps: shorter, lower steps, the hips
+  dropping onto it, a slower turn, a lower kick; a battered arm punches short and drops
+  out of the guard. A protein on bad legs is shoved further, stumbles, and is slower to
+  gather itself. A protein whose legs are gone can still fight with its upper body, and
+  only a protein unfolded all over is knocked out
 - Esc pause
 
 Damage is shown in AlphaFold pLDDT colours: dark blue is intact, orange is

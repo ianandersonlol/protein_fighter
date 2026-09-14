@@ -144,6 +144,7 @@
         : f.y > 0 ? 'jump' : f.action;
       const s = MOVES[pose] ? extension(pose, f.t) : 0;
       const { sag, crawl, tired, kickRange: kr } = env;
+      const armD = env.arms || { l: 0, r: 0 };
       // Breathing: quick and shallow when fresh, slow and deep when hurt or winded.
       const breathe = Math.sin(env.clock * (2.5 + 1.5 * tired) + f.seed);
       const breath = breathe * (0.015 + 0.07 * tired), bob = tired * 0.12 * (breathe + 1) / 2;
@@ -169,10 +170,12 @@
       };
 
       if (pose === 'punch' || pose === 'lowpunch' || pose === 'airpunch' || pose === 'straight') {
-        T.rarmU = -(1 - s); T.rarmL = 0.95 * (1 - s);
+        // A damaged arm does not straighten all the way, and the body puts less behind it.
+        const ar = 1 - 0.45 * armD.r;
+        T.rarmU = -(1 - s * ar); T.rarmL = 0.95 * (1 - s * ar);
         T.head += s * 0.15;   // eyes on the target
-        if (pose === 'straight') { T.pitch = s * 0.35; T.fwd = s * 14; T.larmU = -0.65 + s * 0.3; }   // the whole body behind it
-        if (pose === 'punch') { T.pitch = s * 0.2; T.fwd = s * 5; }
+        if (pose === 'straight') { T.pitch = s * 0.35 * ar; T.fwd = s * 14 * ar; T.larmU = -0.65 + s * 0.3; }   // the whole body behind it
+        if (pose === 'punch') { T.pitch = s * 0.2; T.fwd = s * 5 * ar; }
         if (pose === 'lowpunch') T.low = 1;
         if (pose === 'airpunch') airLegs();
       } else if (pose === 'kick') {
@@ -257,7 +260,7 @@
         // body leaning back off the blow and the knees giving a little, kneeling if
         // crouched. The brace eases off as the blockstun runs out.
         const r = clamp01(f.blockStun / 0.15);
-        T.larmU = -1.35; T.larmL = 1.75; T.rarmU = -1.5; T.rarmL = 1.65;
+        T.larmU = -1.35 + 0.8 * armD.l; T.larmL = 1.75 - 0.5 * armD.l; T.rarmU = -1.5 + 0.8 * armD.r; T.rarmL = 1.65 - 0.5 * armD.r;   // a damaged arm cannot hold its guard up
         T.pitch = -0.15 * r; T.head = 0.35; T.bend = 8 * r;
         if (f.crouch) T.low = 1;
       } else if (pose === 'rest') {
@@ -283,6 +286,10 @@
         const droop = 1.1 * sag + 0.8 * crawl;
         T.pitch += slump; T.larmU += droop; T.larmL += droop; T.rarmU += droop; T.rarmL += droop;
         T.head += 0.5 * sag + 0.4 * crawl;   // the head hangs too
+      }
+      // Each arm hangs by its own damage: a battered arm drops out of the guard.
+      if (pose === 'idle' || pose === 'rest' || pose === 'walk' || pose === 'hurt') {
+        T.larmU += 0.9 * armD.l; T.larmL -= 0.4 * armD.l; T.rarmU += 0.9 * armD.r; T.rarmL -= 0.4 * armD.r;
       }
       if (sag > 0 && MOVES[pose] && !MOVES[pose].air && f.y === 0) T.pitch += slump;
       if (pose === 'idle' || pose === 'rest') T.pitch += breath * 0.8;   // the chest heaves
@@ -357,19 +364,26 @@
       const walking = !air && f.action === 'walk' && Math.abs(dx) > 0.05;
       // The lower the hips, the shorter the step: a full stride from a slumped crouch threw
       // the back leg out flat behind it. Down to a little over half, shuffling, kneeling.
+      const legD = env.legs || { l: 0, r: 0 };
       const scale = 1 - 0.45 * low, stride = STRIDE * scale;
       if (walking && !M.walking) pickUpWalk(M, hx, fc, scale);
       M.walking = walking;
       // The cycle advances with ground covered, and runs backward walking backward.
       if (walking) M.phase = wrap(M.phase + dx * fc / stride);
       const gl = walkAt(M.phase), gr = walkAt(M.phase + 0.5);
+      // A damaged leg limps: its step is shorter and lower, and the hips drop onto it while
+      // it bears the weight, so the gait rocks to the bad side. The step scale is per leg;
+      // the height and the drop are read below where the foot is placed.
+      const limpOf = side => 1 - 0.45 * legD[side];
+      const hipDrop = walking ? 7 * (legD.l * (bearing(M.phase) ? 1 : 0) + legD.r * (bearing(M.phase + 0.5) ? 1 : 0))
+        : 3.5 * Math.max(legD.l, legD.r);   // standing, it sags onto the bad leg a little
       // Walking, the hips ride where the dance holds them, over whichever foot is lower (so a
       // sole always meets the floor and the hips rise and fall through the stride), sunk by
       // the slump; standing, at the stance's height for its depth, less any knee bend.
       const walkHip = FLOOR - Math.min(gl.sole, gr.sole);
       const hipTarget = air ? ANKLE_Y + hipHeight(0)
-        : walking ? walkHip - (hipHeight(0) - hipHeight(low))
-        : ANKLE_Y + hipHeight(low) - bend;
+        : walking ? walkHip - (hipHeight(0) - hipHeight(low)) - hipDrop
+        : ANKLE_Y + hipHeight(low) - bend - hipDrop;
       const hy = (air ? f.y : 0) + spring(M, 'hipY', hipTarget, air ? 20 : 60, dt);
       const skid = !air && Math.abs(f.vx) > SKID;
 
@@ -386,7 +400,7 @@
         if (skid) { F.x += dx; F.swinging = F.walkSwing = false; F.lift = F.lift0 = 0; continue; }
         if (walking) {
           const u = side === 'l' ? M.phase : M.phase + 0.5, g = side === 'l' ? gl : gr;
-          const there = hx + fc * g.dz * scale;   // where the dance has this foot now
+          const there = hx + fc * g.dz * scale * limpOf(side);   // where the dance has this foot now, a bad leg reaching less
           if (bearing(u)) {
             // Down: from heel strike it stays exactly where it landed until toe-off.
             if (F.swinging) { if (F.walkSwing) F.x = there; F.swinging = F.walkSwing = false; M.stepSeq = (M.stepSeq || 0) + 1; M.stepX = F.x; }   // heel strike
@@ -397,7 +411,7 @@
             const through = swingThrough(u), done = dx * fc >= 0 ? through : 1 - through;
             F.x = there + F.gap * (1 - ease(done));
           }
-          F.walkY = walkHip + g.dy;   // the dance's ankle height: heel strike, roll, toe-off, swing
+          F.walkY = walkHip + g.dy - (walkHip + g.dy - ANKLE_Y) * 0.5 * legD[side];   // the dance's ankle height: heel strike, roll, toe-off, swing; a bad leg barely lifts
           F.walkPitch = g.pitch;
           F.lift = F.walkY - ANKLE_Y;
           continue;
@@ -463,7 +477,8 @@
       // 6. The rig, turned to face ±x (a rotation, not a mirror, so chirality survives) and
       // set on the hips. Turning round is a swing through the front, not a flip: the yaw
       // springs from one facing to the other in about a sixth of a second.
-      const yaw = spring(M, 'yaw', fc * Math.PI / 2, 36, dt) + fc * spinAngle, cy = Math.cos(yaw), sy = Math.sin(yaw);
+      const turn = 36 * (1 - 0.5 * Math.max(legD.l, legD.r));   // on bad legs the pivot is slow
+      const yaw = spring(M, 'yaw', fc * Math.PI / 2, turn, dt) + fc * spinAngle, cy = Math.cos(yaw), sy = Math.sin(yaw);
       const p = rig.pose({
         root_R: X(pitch),
         larm_upper: arm(-1, lu + S.l[0] * k, out), larm_lower: arm(-1, ll + S.l[0] * 1.6 * k, out),

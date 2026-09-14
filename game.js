@@ -64,6 +64,10 @@
       for (let i = Math.max(0, lo - 1); i <= Math.min(n - 1, hi + 1); i++) legs[i] = 1;
     }
     const legIdx = [...legs.keys()].filter(i => legs[i]);
+    // ...and each leg and arm on its own, so damage is felt by the limb that took it.
+    const legSide = Object.fromEntries(['l', 'r'].map(s => [s, legIdx.filter(i => rig.owner[i] && rig.owner[i].startsWith(s + 'leg'))]));
+    for (const s of ['l', 'r']) if (!legSide[s].length) legSide[s] = legIdx;
+    const armSide = { l: D.larm, r: D.rarm };
     // The striking end of each limb, not only its tip. Point-blank, a kick's foot has
     // gone clean through the other torso's hollow by the time it is out, 13 Å from every
     // residue, and only the shin is still against the body: counting the foot alone made
@@ -73,7 +77,7 @@
     const fist = D.rarm.filter((_, k) => reach[k] > 0.64), fistL = D.larm.filter((_, k) => reachL[k] > 0.64);
     const torso = D.torso;
     return {
-      name, rig, n, motion, legs, legIdx, fist, fistL,
+      name, rig, n, motion, legs, legIdx, legSide, armSide, fist, fistL,
       armIdx: [...D.larm, ...D.rarm], kick: [...D.rleg_shin, ...D.rleg_foot], frontKick: [...D.lleg_shin, ...D.lleg_foot], torso,
       mid: torso[torso.length >> 1],   // a residue in the middle of the body
       // Deterministic per-residue direction, so jitter is stable frame to frame.
@@ -126,7 +130,8 @@
       blockStun: 0,                  // braced behind a block, briefly unable to act
       blockHold: 0,                  // the CPU holding back to block, for this long
       unfold: new Float32Array(N),   // 0 folded … 1 denatured, per residue
-      limp: 0.8,                     // how loose a fully unfolded residue hangs off the pose
+      limp: 0.93,                    // how loose a fully unfolded residue hangs off the pose
+      shockDecay: 0.955,             // how slowly the last blow's shaking dies away
       seed: Math.random() * 100,
       coords: null,
     };
@@ -152,8 +157,9 @@
   // gone it tips further forward (crawl), and winded it breathes deeper (tired).
   function bearing(f) {
     const m = meanUnfold(f);
-    return { sag: 0.55 * clamp01((m - 0.2) / 0.8), crawl: clamp01((m - 0.7) / 0.3),
-      tired: Math.max(0.15, f.fatigue, m), mean: m, kickRange: kickRange(f) };
+    return { sag: 0.6 * clamp01((m - 0.12) / 0.7), crawl: clamp01((m - 0.6) / 0.35),
+      tired: Math.min(1, Math.max(0.15, f.fatigue, 1.3 * m)), mean: m, kickRange: kickRange(f),
+      legs: { l: legDamage(f, 'l'), r: legDamage(f, 'r') }, arms: { l: armDamage(f, 'l'), r: armDamage(f, 'r') } };
   }
 
   // Where each residue belongs this tick: the moving body (motion.js), then what damage
@@ -197,7 +203,7 @@
     // the whole protein is, and a knocked-out protein drops hardest of all.
     const collapsing = f.hp === 0;
     f.settle = Math.max(0, f.settle - TICK / 1.5);
-    const fall = GRAVITY * TICK * TICK * (1 + 2 * meanUnfold(f)) * (collapsing ? 1.6 : 1);
+    const fall = GRAVITY * TICK * TICK * (1.6 + 2 * meanUnfold(f)) * (collapsing ? 1.6 : 1);
     const loose = new Float32Array(N);
     for (let i = 0; i < N; i++) {
       // How loosely a residue hangs off its pose: nothing while folded, rising steeply as
@@ -209,7 +215,7 @@
       // A hard blow knocks chain loose for a moment, to fly and swing before it is pulled
       // back; a new round's body gathers itself back up from where the last one left it.
       d = Math.max(d, 0.97 * f.shock[i], 0.96 * Math.sqrt(f.settle));
-      f.shock[i] *= 0.955;
+      f.shock[i] *= f.shockDecay;
       const k = 1 - d, heat = 0;   // no random shaking: unfolded chain moves only when the body does
       loose[i] = d;
       const vx = (p[0] - o[0]) * 0.96, vy = (p[1] - o[1]) * 0.96, vz = (p[2] - o[2]) * 0.96;
@@ -295,17 +301,40 @@
 
   // ------------------------------------------------------------------ damage
   const partDamage = (f, idx) => idx.reduce((s, i) => s + f.unfold[i], 0) / idx.length;
-  // Unfolded legs still carry a fighter, just slowly: down to a third of the pace.
-  const mobility = f => Math.max(0.2, 1 - 0.65 * partDamage(f, f.form.legIdx) - 0.25 * meanUnfold(f));
+  // The mean unfolding of the chain within `radius` Å of a point.
+  function localUnfold(f, at, radius) {
+    let s = 0, n = 0;
+    for (let i = 0; i < f.form.n; i++) {
+      const q = f.coords[i];
+      if (Math.hypot(q[0] - at[0], q[1] - at[1], q[2] - at[2]) < radius) { s += f.unfold[i]; n++; }
+    }
+    return n ? s / n : 0;
+  }
+  // Each limb's damage on its own: a leg that took the kicks is the leg that limps.
+  const legDamage = (f, side) => partDamage(f, f.form.legSide[side]);
+  const armDamage = (f, side) => partDamage(f, f.form.armSide[side]);
+  const worstLeg = f => Math.max(legDamage(f, 'l'), legDamage(f, 'r'));
+  // Unfolded legs still carry a fighter, just slowly: the worse leg sets the pace, down
+  // to a fifth of it.
+  const mobility = f => Math.max(0.2, 1 - 0.5 * worstLeg(f) - 0.2 * Math.min(legDamage(f, 'l'), legDamage(f, 'r')) - 0.25 * meanUnfold(f));
+  // Which limb a move is thrown with: the right arm punches, the front (left) leg throws
+  // the standing kick, the back (right) leg the rest, the spin uses both arms.
+  const limbOf = (f, move) => {
+    const m = MOVES[move];
+    if (!m) return f.form.legIdx;
+    if (m.fist === 'rarm') return f.form.armSide.r;
+    if (m.fist === 'arms' || m.fist === 'wave') return f.form.armIdx;
+    return move === 'kick' ? f.form.legSide.l : f.form.legSide.r;
+  };
   // A strike comes from a limb: the more that limb, and the protein as a whole, has
   // unfolded, the slower it plays out (up to ~2.4x) and the less it hurts (down to a quarter).
-  const limbOf = (f, move) => MOVES[move]?.fist === 'rarm' ? f.form.armIdx : f.form.legIdx;
   const strikeSlow = f => 1 + 0.9 * partDamage(f, limbOf(f, f.action)) + 0.5 * meanUnfold(f);
   const strikePower = (f, move) => Math.max(0.25, 1 - 0.6 * partDamage(f, limbOf(f, move)) - 0.3 * meanUnfold(f));
   // ...and how far a kick can swing at all: the leg lift and the lean back, as a fraction
-  // of a healthy kick. Down to half with the legs and the protein gone: at a third the
-  // limp leg never left the floor (the foot peaked 1.7 Å up at 90% unfolded).
-  const kickRange = f => Math.max(0.5, 1 - 0.5 * partDamage(f, f.form.legIdx) - 0.3 * meanUnfold(f));
+  // of a healthy kick, for the leg that kicks. Down to half with the leg and the protein
+  // gone: at a third the limp leg never left the floor (the foot peaked 1.7 Å up at 90%
+  // unfolded).
+  const kickRange = f => Math.max(0.5, 1 - 0.5 * partDamage(f, limbOf(f, MOVES[f.action] ? f.action : 'roundhouse')) - 0.3 * meanUnfold(f));
 
   // Health is how folded the protein still is: 100 intact, 0 fully denatured. It is
   // read off the unfolding, not kept alongside it, so the bar, the colours and the
@@ -316,20 +345,24 @@
   // disordered, so it reaches the orange band (the palette calls exactly 50 yellow).
   const toPlddt = d => 100 - 50.2 * d;
 
-  // A hit unfolds `amount` percent of the protein, concentrated near the impact.
-  // Residues that are already fully unfolded pass their share on. A low hit unfolds
-  // the legs, until there is no leg left to unfold.
+  // A hit unfolds `amount` percent of the protein, concentrated near the impact: a jab
+  // nicks a small patch, a drop kick craters a wide one (the radius grows with the blow),
+  // spread across the struck face rather than through the body (the far side is spared), and deepest where the
+  // chain has already come loose, so a battered spot takes the next blow worst. Residues
+  // that are fully unfolded pass their share on. A low hit unfolds the legs, until there
+  // is no leg left to unfold.
   function wound(b, at, amount, legsOnly, dir = 0) {
     const { n: N, legs: LEGS } = b.form;
     let budget = amount / 100 * N;
-    const weight = new Float32Array(N);
+    const weight = new Float32Array(N), radius = 14 + 2.4 * amount;
     for (let pass = 0; pass < 8 && budget > 1e-6; pass++) {
       const legsLeft = legsOnly && [...b.unfold].some((v, i) => LEGS[i] && v < 1);
       let sum = 0;
       for (let i = 0; i < N; i++) {
         if (b.unfold[i] >= 1 || (legsLeft && !LEGS[i])) { weight[i] = 0; continue; }
         const q = b.coords[i], r = Math.hypot(q[0] - at[0], q[1] - at[1], q[2] - at[2]);
-        weight[i] = Math.exp(-(r * r) / (2 * 26 * 26)) + 0.01;
+        const deep = r > 1e-6 ? Math.max(0, (q[0] - at[0]) * dir / r) : 0;   // 1 straight on into the body from the contact, 0 across the struck face
+        weight[i] = (Math.exp(-(r * r) / (2 * radius * radius)) * (1 - 0.5 * deep) + 0.005) * (1 + 0.9 * b.unfold[i]);
         sum += weight[i];
       }
       if (sum === 0) break;
@@ -346,16 +379,19 @@
     // whips instead of just recolouring. The more of the protein has unfolded, the harder
     // and wider the blow throws it. Folded residues sit on their targets and barely notice.
     if (b.prev) {
-      const mess = 1 + 1.2 * meanUnfold(b), radius = 30 * (1 + 0.5 * meanUnfold(b));
-      const push = Math.min(9, amount * 1.2 * mess), lift = Math.min(4, amount * 0.4 * mess);
+      const mess = 1 + 1.2 * meanUnfold(b), reach = (radius + 8) * (1 + 0.5 * meanUnfold(b));
+      const push = Math.min(14, amount * 1.6 * mess), lift = Math.min(7, amount * 0.6 * mess);
       for (let i = 0; i < N; i++) {
         const q = b.coords[i], r = Math.hypot(q[0] - at[0], q[1] - at[1], q[2] - at[2]);
-        const w = Math.exp(-(r * r) / (2 * radius * radius)) * b.unfold[i];
+        const w = Math.exp(-(r * r) / (2 * reach * reach)) * b.unfold[i];
         if (w < 0.02) continue;
         b.prev[i][0] -= dir * push * w;   // verlet: velocity is position minus previous
         b.prev[i][1] -= lift * w;
-        b.shock[i] = Math.max(b.shock[i], Math.min(0.6, w * (mess - 1) * 0.6));
+        // Knocked loose to whip out and swing under gravity before the pose gathers it
+        // back; a heavy blow shakes it longer.
+        b.shock[i] = Math.max(b.shock[i], Math.min(0.85, w * (0.35 + (mess - 1)) * 0.9));
       }
+      b.shockDecay = 0.955 + 0.025 * clamp01(amount / 8);
     }
     b.hp = health(b);
     b.sinceHit = 0;
@@ -871,6 +907,10 @@
   function blockHit(i, move, at, power) {
     const a = fighters[i], b = fighters[1 - i], m = MOVES[move];
     a.hit = true;
+    // A battered arm cannot hold the guard up: the worse arm lets a share of the blow
+    // through (up to 60% of it with the arm gone), unfolding around the guard.
+    const leak = 0.6 * Math.max(armDamage(b, 'l'), armDamage(b, 'r'));
+    if (leak > 0.02) wound(b, at, m.damage * DAMAGE_SCALE * power * leak, m.low, a.facing);
     b.vx = a.facing * m.push * 0.55 * power;
     b.blockStun = m.stun * 0.75; b.lastHit = at;
     b.form.motion.jolt(b, { arms: (a.facing * b.facing < 0 ? -1 : 1) * 3 * power, head: 0, legs: m.low ? 3 : 1 });
@@ -923,7 +963,11 @@
   function landHit(i, move, at, power) {
     const a = fighters[i], b = fighters[1 - i], m = MOVES[move];
     a.hit = true;
-    b.vx = a.facing * m.push * power;
+    // Knocked back harder the more of it has come apart, and a fighter on bad legs is
+    // shoved a stumble further; how soft the struck patch already is (the mean unfolding
+    // within 25 Å) throws the parts about more, with nothing rigid there to take the blow.
+    const legsGone = worstLeg(b), soft = localUnfold(b, at, 25);
+    b.vx = a.facing * m.push * power * (1 + 0.8 * meanUnfold(b) + 0.6 * legsGone);
     wound(b, at, m.damage * DAMAGE_SCALE * power, m.low, a.facing);
     dent(b, at, a.facing, m.damage * power);
     b.lastHit = at;
@@ -932,14 +976,15 @@
     // arms fly and the legs buckle, a low blow most of all.
     const high = at[1] > b.motion.hip[1] + b.form.motion.NECK_HEIGHT - 8;
     const away = a.facing * b.facing < 0 ? -1 : 1;
-    b.form.motion.jolt(b, { head: away * (high ? 24 : 8) * power, arms: away * 5 * power, legs: (m.low ? 6 : 2.5) * power });
+    const throwAbout = power * (1 + 1.2 * soft);
+    b.form.motion.jolt(b, { head: away * (high ? 24 : 8) * throwAbout, arms: away * 5 * throwAbout, legs: (m.low ? 6 : 2.5) * throwAbout * (1 + legsGone) });
     // A hit on a fighter still reeling from the last, or still in the air from it, runs
     // the combo on; the count shows over the one taking it, with each hit's damage.
     a.combo = (b.stun > 0 || b.comboAir) ? (a.combo || 0) + 1 : 1;
     b.comboAir = b.y > 0;
     const dmg = Math.round(m.damage * DAMAGE_SCALE * power * 10) / 10;
     damageNumber(at, dmg, a.combo);
-    b.stun = m.stun * (0.4 + 0.6 * power); b.action = 'hurt'; b.t = 0; b.squat = 0; b.lastLow = !!m.low;
+    b.stun = m.stun * (0.4 + 0.6 * power) * (1 + 0.6 * legsGone); b.action = 'hurt'; b.t = 0; b.squat = 0; b.lastLow = !!m.low;   // slower to gather itself on bad legs
     if (b.y > 0) b.vy = Math.max(b.vy, 260);   // hit in the air: popped up, then falls
     hitstop = 0.05 + m.damage * 0.004 * power;
     window.Cell?.spark(at, a.facing, m.damage * power, 'hit');
