@@ -49,7 +49,47 @@
     }
   }
 
-  function draw(canvas, { camX, scale, floorFar, floorDepth, theme, t }) {
+  // Effects in the world: sparks flung from a blow, rings spreading from a footfall.
+  const sparks = [], ripples = [];
+  function spark(at, dir, power, kind) {
+    const n = kind === 'block' ? 6 + power : 10 + power * 1.6;
+    for (let i = 0; i < n; i++) {
+      const a = (Math.random() - 0.5) * (kind === 'block' ? 0.6 : 2.4), sp = (60 + Math.random() * 140) * (0.6 + Math.min(1.5, power / 8));
+      sparks.push({ x: at[0], y: at[1], z: at[2], vx: dir * Math.cos(a) * sp, vy: Math.sin(a) * sp * (kind === 'block' ? 0.3 : 1) + (kind === 'block' ? 20 : 60), vz: (Math.random() - 0.5) * 60,
+        age: 0, life: 0.25 + Math.random() * 0.3, r: 1.2 + Math.random() * 2.2, kind });
+    }
+  }
+  function ripple(x, size) { ripples.push({ x, age: 0, size }); }
+
+  function drawFx(canvas, { project, scale, theme, dt, bodies }) {
+    const W = canvas.clientWidth, H = canvas.clientHeight, dpr = Math.min(1.5, devicePixelRatio || 1);
+    if (!W || !H) return;
+    if (canvas.width !== Math.round(W * dpr) || canvas.height !== Math.round(H * dpr)) { canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr); }
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+    const P = PALETTE[theme] || PALETTE.dark, dark = theme !== 'light';
+    // Footfalls: flattened rings on the floor, spreading and fading in half a second.
+    for (const r of ripples) {
+      r.age += dt;
+      const [X, Y, c] = project(r.x, 0, 0), k = r.age / 0.5, rad = (4 + 26 * k) * r.size * scale * c;
+      ctx.strokeStyle = `rgba(${P.membrane},${(1 - k) * 0.5})`; ctx.lineWidth = Math.max(1, (2 - k) * scale * 0.5);
+      ctx.beginPath(); ctx.ellipse(X, Y, rad, rad * 0.28, 0, 0, TAU); ctx.stroke();
+    }
+    for (let i = ripples.length - 1; i >= 0; i--) if (ripples[i].age > 0.5) ripples.splice(i, 1);
+    // Sparks: flung along the blow, falling, fading, warm for a hit and cool for a block.
+    for (const s of sparks) {
+      s.age += dt; s.vy -= 700 * dt; s.x += s.vx * dt; s.y += s.vy * dt; s.z += s.vz * dt;
+      if (s.y < 1) { s.y = 1; s.vy *= -0.3; s.vx *= 0.6; }
+      const k = s.age / s.life, [X, Y, c] = project(s.x, s.y, s.z);
+      const col = s.kind === 'block' ? P.membrane : P.warm;
+      ctx.fillStyle = `rgba(${col},${(1 - k) * (dark ? 0.95 : 0.9)})`;
+      ctx.beginPath(); ctx.arc(X, Y, Math.max(1, s.r * scale * c * (1 - k * 0.5)), 0, TAU); ctx.fill();
+    }
+    for (let i = sparks.length - 1; i >= 0; i--) if (sparks[i].age > sparks[i].life) sparks.splice(i, 1);
+  }
+
+  function draw(canvas, fx, { camX, scale, project, floorFar, floorDepth, theme, t, dt, bodies }) {
+    if (fx) drawFx(fx, { project, scale, theme, dt, bodies });
     const W = canvas.clientWidth, H = canvas.clientHeight, dpr = Math.min(1.5, devicePixelRatio || 1);
     if (!W || !H) return;
     if (canvas.width !== Math.round(W * dpr) || canvas.height !== Math.round(H * dpr)) { canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr); }
@@ -108,6 +148,16 @@
       ctx.beginPath(); ctx.arc(x, y, rr, 0, TAU); ctx.fill();
     });
 
+    // Shadows: a soft pool under each fighter on the floor, lighter and wider the higher
+    // it is off the ground, so a jump reads by its shadow.
+    for (const b of bodies || []) {
+      const [X, Y, c] = project(b.x, 0, 0), rx = b.w * scale * c * (1 + b.y / 220), ry = rx * 0.3;
+      const g2 = ctx.createRadialGradient(X, Y, 0, X, Y, rx);
+      const a = (dark ? 0.55 : 0.3) / (1 + b.y / 50);
+      g2.addColorStop(0, `rgba(0,0,0,${a})`); g2.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.save(); ctx.translate(X, Y); ctx.scale(1, ry / rx); ctx.fillStyle = g2; ctx.translate(-X, -Y);
+      ctx.beginPath(); ctx.arc(X, Y, rx, 0, TAU); ctx.fill(); ctx.restore();
+    }
     // The membrane they stand on: the floor band is its top surface, seen from above, and
     // its bilayer shows in section along the band's near edge, below the feet, so the
     // feet stay clear against the band.
@@ -119,5 +169,5 @@
     ctx.fillStyle = veil; ctx.fillRect(0, 0, W, H * 0.24);
   }
 
-  window.Cell = { draw };
+  window.Cell = { draw, spark, ripple };
 })();

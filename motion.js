@@ -334,7 +334,7 @@
           const there = hx + fc * g.dz * scale;   // where the dance has this foot now
           if (bearing(u)) {
             // Down: from heel strike it stays exactly where it landed until toe-off.
-            if (F.swinging) { if (F.walkSwing) F.x = there; F.swinging = F.walkSwing = false; }
+            if (F.swinging) { if (F.walkSwing) F.x = there; F.swinging = F.walkSwing = false; M.stepSeq = (M.stepSeq || 0) + 1; M.stepX = F.x; }   // heel strike
           } else {
             // In the air it follows the dance. What the planted foot drifted from the dance
             // while it bore weight is carried off at toe-off and faded out by heel strike.
@@ -353,7 +353,7 @@
           F.u = Math.min(1, F.u + dt / STEP_TIME);
           F.x = lerp(F.from, rest, ease(F.u));
           F.lift = F.lift0 * (1 - F.u) + STEP_LIFT * Math.sin(Math.PI * F.u);
-          if (F.u >= 1) { F.swinging = false; F.lift = F.lift0 = 0; }
+          if (F.u >= 1) { F.swinging = false; F.lift = F.lift0 = 0; M.stepSeq = (M.stepSeq || 0) + 1; M.stepX = F.x; }   // a step set down
         } else {
           F.lift *= 0.7;   // a heel still raised from the walk settles flat
           if (f.hp > 0 && !other.swinging && Math.abs(F.x - rest) > STEP_TOL) {

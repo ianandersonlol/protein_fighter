@@ -142,6 +142,9 @@
   function targets(f, clock) {
     const { n: N, jitterDir } = f.form;
     const p = f.form.motion.update(f, { clock, dt: TICK, ...bearing(f) });
+    // A foot set down sends a ripple through the cytoplasm.
+    const M = f.motion;
+    if (M && M.stepSeq && M.stepSeq !== f.stepSeen) { f.stepSeen = M.stepSeq; if (f.y === 0) window.Cell?.ripple(M.stepX, f.action === 'walk' ? 1 : 0.6); }
     // A hit breaks the helices over a few frames rather than in one.
     for (let i = 0; i < N; i++) f.soft[i] += (f.unfold[i] - f.soft[i]) * 0.2;
     f.jit += ((f.hp === 0 ? 11 : 5) - f.jit) * 0.05;
@@ -428,7 +431,7 @@
   // width is what binds, and following the fighters is what keeps them on screen.
   // Tilted down enough to give the proteins depth, and no more, so the heads stand clear
   // of the shoulders rather than being looked down onto.
-  const CAMERA = { pitch: 0.5, yaw: 0, centerY: 70, x: 0, halfW: 240, minHalfW: 105, room: 80, halfH: 100 };
+  const CAMERA = { pitch: 0.5, yaw: 0, centerY: 70, x: 0, halfW: 240, minHalfW: 105, room: 80, halfH: 100, shake: 0, bx: 0, by: 0 };
   function frameCamera(dt) {
     const [a, b] = fighters, xa = barrelX(a), xb = barrelX(b);
     let want = Math.min(MAX_GAP / 2 + CAMERA.room, Math.max(CAMERA.minHalfW, Math.abs(xa - xb) / 2 + CAMERA.room));
@@ -439,6 +442,9 @@
     const k = 1 - Math.exp(-dt * 5), kz = 1 - Math.exp(-dt * 3);
     CAMERA.x += (mid - CAMERA.x) * k;
     CAMERA.halfW += (want - CAMERA.halfW) * kz;
+    // A bump from a heavy blow: the view is knocked a few Å off and settles in a moment.
+    CAMERA.shake *= Math.exp(-dt * 9);
+    CAMERA.bx = (Math.random() - 0.5) * 2 * CAMERA.shake; CAMERA.by = (Math.random() - 0.5) * 2 * CAMERA.shake;
   }
   // py2Dmol fits the extent into 85% of the stage, whichever of width and height binds:
   // an aspect of halfW by halfH asks for that many Ångström each way.
@@ -447,7 +453,7 @@
     const hx = 0.85 * CAMERA.halfW, hy = CAMERA.halfH, extent = Math.max(hx, hy);
     for (const v of [viewer.viewerState, viewer.objectsData.arena?.viewerState]) {
       if (!v) continue;
-      v.center = { x: CAMERA.x, y: CAMERA.centerY, z: 0 };
+      v.center = { x: CAMERA.x + CAMERA.bx, y: CAMERA.centerY + CAMERA.by, z: 0 };
       v.extent = extent;
       v.extentAspect = { x: hx / extent, y: hy / extent };
       v.zoom = 1;
@@ -459,24 +465,32 @@
   // feet stand on the floor at any size of screen.
   // The feet stand between 20 Å behind the pelvis and 25 Å in front of it.
   const FLOOR_FAR_Z = -30, FLOOR_NEAR_Z = 28, GRID = 20;   // Å between the floor's lines
-  let floorShown = '';
-  function placeFloor() {
+  // py2Dmol's projection, so the page can draw to the same camera: a world point turned
+  // into the camera's frame, then, with its partial perspective, scaled by focal / (focal
+  // - depth). Returns [screen x, screen y, that scale factor] in stage pixels.
+  function view() {
     const stage = $('stage'), W = stage.clientWidth, H = stage.clientHeight;
-    if (!W || !H) return;
     const hx = 0.85 * CAMERA.halfW, hy = CAMERA.halfH;
     const scale = Math.min(0.85 * W / (2 * hx), 0.85 * H / (2 * hy));   // px per Å, as py2Dmol fits it
     const cp = Math.cos(CAMERA.pitch), sp = Math.sin(CAMERA.pitch);
-    // py2Dmol's projection: the point turned into the camera's frame, then, with its
-    // partial perspective, scaled by focal / (focal - depth).
     const fl = viewer.viewerState.focalLength || 200, ortho = viewer.viewerState.ortho;
-    const line = z => {
-      const ry = -cp * CAMERA.centerY - sp * z, rz = -sp * CAMERA.centerY + cp * z;   // floor point (y = 0, depth z) in the camera's frame
+    const cx = CAMERA.x + CAMERA.bx, cy = CAMERA.centerY + CAMERA.by;
+    const project = (x, y, z) => {
+      const dx = x - cx, dy = y - cy, ry = cp * dy - sp * z, rz = sp * dy + cp * z;
       const c = ortho < 1 ? fl / (fl - rz) : 1;
-      return H / 2 - ry * scale * c;
+      return [W / 2 + dx * scale * c, H / 2 - ry * scale * c, c];
     };
+    return { W, H, scale, project };
+  }
+  let floorShown = '';
+  function placeFloor() {
+    const { W, H, scale, project } = view();
+    if (!W || !H) return;
+    const line = z => project(CAMERA.x + CAMERA.bx, 0, z)[1];
     const far = line(FLOOR_FAR_Z), depth = line(FLOOR_NEAR_Z) - far;
-    // The cell behind everything, drawn to the same camera.
-    window.Cell?.draw($('cell'), { camX: CAMERA.x, scale, floorFar: far, floorDepth: depth, theme, t: clock });
+    // The cell behind everything, and the effects over it, drawn to the same camera.
+    window.Cell?.draw($('cell'), $('fx'), { camX: CAMERA.x, scale, project, floorFar: far, floorDepth: depth, theme, t: clock, dt: DT,
+      bodies: fighters.map(f => ({ x: barrelX(f), y: f.y, w: 30 })) });
     // The floor's grid is drawn in the world: a line every GRID Å, scrolling with the camera.
     const step = GRID * scale, gridX = W / 2 - (CAMERA.x % GRID) * scale;
     const key = `${far.toFixed(1)}|${depth.toFixed(1)}|${step.toFixed(2)}|${gridX.toFixed(1)}`;
@@ -788,6 +802,8 @@
     b.blockStun = m.stun * 0.75; b.lastHit = at;
     b.form.motion.jolt(b, { arms: (a.facing * b.facing < 0 ? -1 : 1) * 3 * power, head: 0, legs: m.low ? 3 : 1 });
     hitstop = 0.03;
+    window.Cell?.spark(at, a.facing, m.damage * power * 0.5, 'block');
+    CAMERA.shake = Math.min(3, 0.8 + m.damage * power * 0.15);
   }
 
   // A blow from fighter i's `move` landing at `at` with this much of its strength.
@@ -806,7 +822,9 @@
     b.form.motion.jolt(b, { head: away * (high ? 24 : 8) * power, arms: away * 5 * power, legs: (m.low ? 6 : 2.5) * power });
     b.stun = m.stun * (0.4 + 0.6 * power); b.action = 'hurt'; b.t = 0; b.squat = 0; b.lastLow = !!m.low;
     if (b.y > 0) b.vy = Math.max(b.vy, 260);   // hit in the air: popped up, then falls
-    hitstop = 0.05 + m.damage * 0.003 * power;
+    hitstop = 0.05 + m.damage * 0.004 * power;
+    window.Cell?.spark(at, a.facing, m.damage * power, 'hit');
+    CAMERA.shake = Math.min(7, 1.5 + m.damage * power * 0.4);
     if (b.hp === 0) { b.action = 'ko'; b.t = 0; }
   }
 
