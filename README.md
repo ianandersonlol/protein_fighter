@@ -12,7 +12,7 @@ The two fighters are different proteins, each other's inside out:
 - **P1**, a 379-residue humanoid from `../dance`: a 14-strand β-barrel body, two
   α-helix arms at the chain ends, β-sheet legs with sheet feet, and a small four-helix
   bundle head
-- **P2**, a 412-residue helical fighter: an eight-helix bundle body, two β-hairpin arms
+- **P2**, a 424-residue helical fighter: an eight-helix bundle body, two β-hairpin arms
   that grow out of the loops on the front helices, a single α-helix for each leg
   hanging from the back helices at the chain ends, finishing in a short helix foot,
   and a small eight-strand β-barrel head on the loop at the back

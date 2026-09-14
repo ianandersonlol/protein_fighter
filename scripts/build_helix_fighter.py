@@ -197,7 +197,7 @@ ARM_PHASE = {-1: 1, +1: 1}   # per side (left -1, right +1); scanned so each hai
 HEAD_PHASE, TURN_SEGMENTS = 0, 3
 LEG_X, LEG_Z, HIP_Y, LEG_LEN, KNEE = 8.5, -6.0, -16.5, 42, 20   # helix residue 20 is the knee; hips at the back, as the humanoid's
 FOOT_Y, FOOT_Z0, FOOT_LEN = -80.0, -3.0, 11               # the foot points forward, +z, from just ahead of the ankle
-HEAD_CENTER, HEAD_STRANDS, HEAD_STRAND, HEAD_TWIST = (0.0, 31.5, -3.0), 8, 5, 0.0   # an even count: both necks leave the bottom
+HEAD_CENTER, HEAD_STRANDS, HEAD_STRAND, HEAD_TWIST = (0.0, 31.5, -3.0), 8, 7, 0.0   # an even strand count: both necks leave the bottom; seven residues a strand reads best (scanned)
 HEAD_RADIUS = 4.8 / (2.0 * np.sin(pi / HEAD_STRANDS))      # strands 4.8 A apart around the ring
 
 UP, DOWN, FWD, BACK = np.array([0, 1.0, 0]), np.array([0, -1.0, 0]), np.array([0, 0, 1.0]), np.array([0, 0, -1.0])
