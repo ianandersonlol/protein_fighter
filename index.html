@@ -36,7 +36,8 @@
      game.js sets --floor-far and --floor-depth from the camera every frame. */
   .floor { position: absolute; left: 0; right: 0; top: var(--floor-far, calc(70% - 10vh)); bottom: 0; pointer-events: none;
            background: linear-gradient(var(--floor1), var(--floor2) var(--floor-depth, 17vh), #0000 var(--floor-depth, 17vh)),
-                       repeating-linear-gradient(90deg, #0000 0 38px, var(--grid) 38px 40px); }
+                       repeating-linear-gradient(90deg, var(--grid) 0 2px, #0000 2px var(--grid-step, 40px));
+           background-position: 0 0, var(--grid-x, 0) 0; }
   .floor::before { content: ''; position: absolute; left: 0; right: 0; top: 0; border-top: 1px solid var(--edge-far); }
   .floor::after { content: ''; position: absolute; left: 0; right: 0; top: var(--floor-depth, 17vh); border-top: 2px solid var(--edge-near); }
 

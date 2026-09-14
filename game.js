@@ -7,7 +7,10 @@
   const $ = id => document.getElementById(id);
 
   // ---------------------------------------------------------------- combat rules
-  const ARENA = 150;          // fighters stay within ±ARENA
+  // The arena has no walls: the floor runs on, the camera follows, and the two fighters
+  // can only get this far apart (torso to torso), which is where the screen's edge
+  // becomes the wall once the camera has pulled back as far as it goes.
+  const MAX_GAP = 300;
   const WALK = 130, JUMP_V = 655, JUMP_VX = 240, GRAVITY = 2400, FRICTION = 9;
   // Jumps: a knee bend to push off, falling faster than rising, a little air drag,
   // letting go of up early cuts it to a short hop, and the knees soak up the landing.
@@ -426,13 +429,11 @@
   const CAMERA = { pitch: 0.5, yaw: 0, centerY: 70, x: 0, halfW: 240, minHalfW: 105, room: 80, halfH: 100 };
   function frameCamera(dt) {
     const [a, b] = fighters, xa = barrelX(a), xb = barrelX(b);
-    const edge = ARENA + 60;   // the view may reach this far past the centre, so a fighter at the wall is not at the edge
-    let want = Math.min(edge, Math.max(CAMERA.minHalfW, Math.abs(xa - xb) / 2 + CAMERA.room));
+    let want = Math.min(MAX_GAP / 2 + CAMERA.room, Math.max(CAMERA.minHalfW, Math.abs(xa - xb) / 2 + CAMERA.room));
     let mid = (xa + xb) / 2;
     // A knockout: push in on the loser as it comes apart.
     const loser = phase === 'ko' || phase === 'over' ? fighters.find(f => f.hp === 0) : null;
     if (loser) { want = CAMERA.minHalfW * 0.85; mid = barrelX(loser); }
-    mid = Math.max(-(edge - want), Math.min(edge - want, mid));
     const k = 1 - Math.exp(-dt * 5), kz = 1 - Math.exp(-dt * 3);
     CAMERA.x += (mid - CAMERA.x) * k;
     CAMERA.halfW += (want - CAMERA.halfW) * kz;
@@ -455,7 +456,7 @@
   // its near edge in front. Where those lines fall on screen follows the camera, so the
   // feet stand on the floor at any size of screen.
   // The feet stand between 20 Å behind the pelvis and 25 Å in front of it.
-  const FLOOR_FAR_Z = -30, FLOOR_NEAR_Z = 28;
+  const FLOOR_FAR_Z = -30, FLOOR_NEAR_Z = 28, GRID = 20;   // Å between the floor's lines
   let floorShown = '';
   function placeFloor() {
     const stage = $('stage'), W = stage.clientWidth, H = stage.clientHeight;
@@ -472,12 +473,16 @@
       return H / 2 - ry * scale * c;
     };
     const far = line(FLOOR_FAR_Z), depth = line(FLOOR_NEAR_Z) - far;
-    const key = `${far.toFixed(1)}|${depth.toFixed(1)}`;
+    // The floor's grid is drawn in the world: a line every GRID Å, scrolling with the camera.
+    const step = GRID * scale, gridX = W / 2 - (CAMERA.x % GRID) * scale;
+    const key = `${far.toFixed(1)}|${depth.toFixed(1)}|${step.toFixed(2)}|${gridX.toFixed(1)}`;
     if (key === floorShown) return;
     floorShown = key;
     const arena = document.querySelector('.arena');
     arena.style.setProperty('--floor-far', far.toFixed(1) + 'px');
     arena.style.setProperty('--floor-depth', depth.toFixed(1) + 'px');
+    arena.style.setProperty('--grid-step', step.toFixed(2) + 'px');
+    arena.style.setProperty('--grid-x', gridX.toFixed(1) + 'px');
   }
 
   function draw() {
@@ -585,7 +590,7 @@
         if (MOVES[f.action]?.air) { f.action = 'idle'; f.t = 0; f.cooldown = 0; }
       }
     } else f.vx *= Math.exp(-FRICTION * dt);
-    f.x = Math.max(-ARENA, Math.min(ARENA, f.x + f.vx * dt));
+    f.x += f.vx * dt;
   }
 
   // A player's held directions become movement: walk, down to crouch, up to jump the way
@@ -653,12 +658,18 @@
     }
     return Math.sqrt(best);
   }
-  // Move a whole body along x, as far as the arena allows, velocity untouched.
+  // Move a whole body along x, velocity untouched.
   function slide(f, dx) {
-    const x = Math.max(-ARENA, Math.min(ARENA, f.x + dx));
-    dx = x - f.x; f.x = x;
+    f.x += dx;
     for (let i = 0; i < f.form.n; i++) { f.coords[i][0] += dx; f.prev[i][0] += dx; }
     return Math.abs(dx);
+  }
+  // Neither fighter can back away beyond the frame: past MAX_GAP apart, both are held.
+  function keepTogether() {
+    const [a, b] = fighters, gap = b.x - a.x, over = Math.abs(gap) - MAX_GAP;
+    if (over <= 0) return;
+    const s = Math.sign(gap) * over / 2;
+    a.x += s; b.x -= s;
   }
   function collide(a, b) {
     for (let it = 0; it < 4; it++) {
@@ -696,7 +707,7 @@
     if (mode === 2 || mode === 3) control(c, held[1], dt);
     else cpu(c, p, dt);
 
-    for (const f of fighters) f.x = Math.max(-ARENA, Math.min(ARENA, f.x));
+    keepTogether();
 
     // Bodies, then contact between them, then hits against the bodies as they are now
     for (const f of fighters) f.coords = body(f, clock);
