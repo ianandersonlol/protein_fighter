@@ -129,6 +129,7 @@
       specialAt: -9,                 // when the last heat shock went out (clock)
       blockStun: 0,                  // braced behind a block, briefly unable to act
       blockHold: 0,                  // the CPU holding back to block, for this long
+      guard: false,                  // the guard is up: block held (or the CPU bracing), on the feet, free
       unfold: new Float32Array(N),   // 0 folded … 1 denatured, per residue
       limp: 0.93,                    // how loose a fully unfolded residue hangs off the pose
       shockDecay: 0.955,             // how slowly the last blow's shaking dies away
@@ -144,6 +145,9 @@
     if (m.wave) { if (f.y > 0 || clock - f.specialAt < m.again) return false; f.specialAt = clock; if (m.spin) sfx.spin(); else sfx.shock(); }
     f.hits = 0; f.hitAt = -1;
     Object.assign(f, { action: move, t: 0, hit: false, cooldown: m.duration });
+    // The limb swings with a whoosh: short and high for a punch, longer and lower for a
+    // kick. A guest hears its own fighter's here and the host's through the event.
+    if (!m.wave) { const kind = m.fist === 'rarm' ? 'punch' : 'kick'; sfx.swing(kind); if (!(mode === 3 && f === fighters[1])) netEvent('sfx', 'swing', kind); }
     f.fatigue = Math.min(1, f.fatigue + 0.12);
     return true;
   }
@@ -675,7 +679,7 @@
   // A player's held directions become movement: walk, down to crouch, up to jump the way
   // you are heading.
   function control(f, h, dt) {
-    const dir = (h.has('right') ? 1 : 0) - (h.has('left') ? 1 : 0);
+    const dir = h.has('block') ? 0 : (h.has('right') ? 1 : 0) - (h.has('left') ? 1 : 0);   // holding block roots the feet
     const free = f.stun <= 0 && f.blockStun <= 0 && !MOVES[f.action] && f.action !== 'thrown' && f.y === 0 && !f.squat;
     f.crouch = (free || f.blockStun > 0) && h.has('down');
     walk(f, f.crouch || f.squat ? 0 : dir, dt);
@@ -826,6 +830,8 @@
     control(p, held[0], dt);
     if (mode === 2 || mode === 3) control(c, held[1], dt);
     else cpu(c, p, dt);
+    // The guard shows as a pose: arms tight over the head, the front knee up.
+    fighters.forEach((f, i) => { f.guard = f.y === 0 && f.stun <= 0 && !MOVES[f.action] && f.action !== 'thrown' && f.hp > 0 && (held[i].has('block') || f.blockHold > 0); });
     for (const f of fighters) if (f.action === 'thrown' && f.heldBy != null) holdThrown(f);
     for (const f of fighters) if (f.action === 'special') { const w = waveAt(f); if (w != null && (net.seq & 1) === 0) window.Cell?.wave(w, f.facing); }
     for (const f of fighters) if (f.action === 'spin' && f.t > MOVES.spin.active && f.t < MOVES.spin.active + MOVES.spin.window && net.seq % 3 === 0) window.Cell?.spark(f.coords[f.form.mid], f.facing * (net.seq % 6 < 3 ? 1 : -1), 3, 'block');
@@ -893,14 +899,15 @@
   }
 
   // Blocking, as Street Fighter has it: hold back (away from the attacker) on the ground,
-  // not in the middle of anything, and the blow is taken on the guard. A low blow gets
+  // not in the middle of anything, and the blow is taken on the guard - or, as Mortal
+  // Kombat has it, hold the block key (H, or , for P2), which also roots the feet. A low blow gets
   // under a standing guard and must be blocked crouching; one from the air comes over a
   // crouching guard and must be blocked standing. The CPU holds back for a moment of its
   // own accord now and then (blockHold).
   function canBlock(b, j, m) {
     if (b.y > 0 || b.stun > 0 || MOVES[b.action] || b.hp === 0) return false;
     const back = b.facing > 0 ? 'left' : 'right';
-    if (!(b.blockHold > 0 || held[j].has(back))) return false;
+    if (!(b.blockHold > 0 || held[j].has(back) || held[j].has('block'))) return false;
     return m.low ? b.crouch : m.overhead ? !b.crouch : true;
   }
   // A blocked blow: no damage, a short brace, a shove back, and the guard arms jolted.
@@ -1203,6 +1210,10 @@
       setStyle('hp' + i, 'width', f.hp + '%');
       setStyle('hp' + i, 'background', bandColor(plddt));
       setText('fold' + i, `pLDDT ${Math.round(plddt)}`);
+      // The special meter: the cooldown coming back, full and lit when the special is ready.
+      const again = MOVES[SPECIAL[f.form.name]].again, charge = clamp01((clock - f.specialAt) / again);
+      setStyle('sp' + i, 'width', Math.round(charge * 100) + '%');
+      const meter = $('meter' + i); if (meter.classList.contains('ready') !== (charge >= 1)) meter.classList.toggle('ready', charge >= 1);
       setText('wins' + i, [0, 1].map(n => (wins[i] > n ? '●' : '○')).join(' '));
     });
     setText('name1', names()[1]);
@@ -1323,6 +1334,7 @@
     },
     block() { tone(1500, 900, 0.09, { type: 'triangle', gain: 0.18 }); noise(0.05, 4000, 2000, { gain: 0.12, filter: 'highpass' }); },
     whiff() { noise(0.12, 700, 2400, { gain: 0.06, filter: 'bandpass' }); },
+    swing(kind) { kind === 'punch' ? noise(0.11, 2200, 600, { gain: 0.05, filter: 'bandpass' }) : noise(0.2, 1100, 260, { gain: 0.08, filter: 'bandpass' }); },
     jump() { noise(0.16, 300, 1400, { gain: 0.07, filter: 'bandpass' }); },
     land(p) { tone(110, 35, 0.14, { gain: 0.35 * p }); noise(0.1, 600, 120, { gain: 0.15 * p }); },
     round() {   // a rising sting, then a boom on FIGHT
@@ -1358,10 +1370,10 @@
   // One keyboard, two players, as Street Fighter on a PC: P1 on the left hand side,
   // P2 on the right. Playing the CPU, every key drives P1, and J/K punch and kick too.
   const BINDINGS = [
-    { w: 'up', a: 'left', s: 'down', d: 'right', f: 'punch', g: 'kick' },
-    { arrowup: 'up', arrowleft: 'left', arrowdown: 'down', arrowright: 'right', '.': 'punch', '/': 'kick', 1: 'punch', 2: 'kick' },
+    { w: 'up', a: 'left', s: 'down', d: 'right', f: 'punch', g: 'kick', h: 'block' },
+    { arrowup: 'up', arrowleft: 'left', arrowdown: 'down', arrowright: 'right', '.': 'punch', '/': 'kick', ',': 'block', 1: 'punch', 2: 'kick', 3: 'block' },
   ];
-  const SOLO = { j: 'punch', k: 'kick' };
+  const SOLO = { j: 'punch', k: 'kick', l: 'block' };
   function route(k) {
     if (BINDINGS[0][k]) return [0, BINDINGS[0][k]];
     if (mode !== 2 && SOLO[k]) return [0, SOLO[k]];
@@ -1558,7 +1570,7 @@
   // motion, the numbers on the HUD, what the overlay says, and what happened since the
   // last packet (hits, callouts, the finisher, sounds). The unfolding travels only when
   // it changed. About 2 KB a packet.
-  const SNAP = ['x', 'y', 'vx', 'vy', 'facing', 'hp', 'crouch', 'sinceHit', 'squat', 'jumpDir', 'upReleased', 'landing', 'landPower',
+  const SNAP = ['x', 'y', 'vx', 'vy', 'facing', 'hp', 'crouch', 'guard', 'sinceHit', 'squat', 'jumpDir', 'upReleased', 'landing', 'landPower',
     'fatigue', 'jit', 'settle', 'action', 't', 'hit', 'hits', 'hitAt', 'stun', 'cooldown', 'limp', 'seed', 'lastLow', 'blockStun', 'blockHold', 'heldBy', 'heldProg', 'tumble', 'combo', 'comboAir', 'specialAt'];
   // What a guest keeps its own for the fighter it drives: its keys have already moved
   // it, and the host's word on where it was a moment ago would only drag it back.

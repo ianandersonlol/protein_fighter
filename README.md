@@ -56,15 +56,18 @@ it to the guest. A connection that fails says what the browser saw.
 | move | W A S D | ↑ ← ↓ → |
 | punch | F | . (or numpad 1) |
 | kick | G | / (or numpad 2) |
+| block | H | , (or numpad 3) |
 
-Playing the CPU, both sets drive P1, and J / K punch and kick as well.
+Playing the CPU, both sets drive P1, and J / K / L punch, kick and block as well.
 
 - Walk left and right
 - Jump: tap for a short hop, hold for a full jump that clears the other fighter; add a
   direction to jump forward or back
 - Crouch
-- Block: hold back, away from the other fighter, and a blow is taken on the guard: no
-  unfolding, a shove back and a short brace. A low attack gets under a standing guard, so
+- Block: hold back, away from the other fighter (as Street Fighter has it), or hold the
+  block key, which also roots the feet (as Mortal Kombat has it), and a blow is taken on
+  the guard: no unfolding, a shove back and a short brace, though a battered arm lets some
+  of it through. A low attack gets under a standing guard, so
   block it crouching; an attack from the air comes over a crouching guard, so block it
   standing. The CPU braces now and then too
 - Holding forward, punch is a straight with a lunge and kick a roundhouse, the rear leg
@@ -74,7 +77,7 @@ Playing the CPU, both sets drive P1, and J / K punch and kick as well.
   protein. The barrel's is the heat shock: a wave runs out along the membrane from its
   hands, flinging ligands, and unfolds what it reaches; it runs low, so it is blocked
   crouching. The bundle's is the helix spin: it whirls twice round with both paddles out,
-  and can catch you twice
+  and can catch you twice. The thin meter under each health bar fills as it comes back and lights when it is ready
 - Hits in a row while the other is still reeling count up as a combo, each with its
   damage; the CPU on HARD blocks most of what it sees coming, hits back while you are
   recovering and kicks you out of the air, so a strike thrown over and over is a bad

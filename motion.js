@@ -140,11 +140,11 @@
     // What the body is doing, as targets. env: clock, and what damage has done to its
     // bearing - sag (slumped), crawl (nearly gone), tired (breathing), kickRange.
     function poseOf(f, env) {
-      const pose = f.hp <= 0 ? 'ko' : f.action === 'thrown' ? 'thrown' : f.stun > 0 ? 'hurt' : f.blockStun > 0 ? 'block' : MOVES[f.action] ? f.action
+      const pose = f.hp <= 0 ? 'ko' : f.action === 'thrown' ? 'thrown' : f.stun > 0 ? 'hurt' : (f.blockStun > 0 || f.guard) ? 'block' : MOVES[f.action] ? f.action
         : f.y > 0 ? 'jump' : f.action;
       const s = MOVES[pose] ? extension(pose, f.t) : 0;
       const { sag, crawl, tired, kickRange: kr } = env;
-      const armD = env.arms || { l: 0, r: 0 };
+      const armD = env.arms || { l: 0, r: 0 }, legD = env.legs || { l: 0, r: 0 };
       // Breathing: quick and shallow when fresh, slow and deep when hurt or winded.
       const breathe = Math.sin(env.clock * (2.5 + 1.5 * tired) + f.seed);
       const breath = breathe * (0.015 + 0.07 * tired), bob = tired * 0.12 * (breathe + 1) / 2;
@@ -256,13 +256,20 @@
           T.legs = { l: [0.9, -1.0, 0.2], r: [-0.4, -1.4, 0.3] };
         }
       } else if (pose === 'block') {
-        // Braced: both forearms up and across the face, the head tucked behind them, the
-        // body leaning back off the blow and the knees giving a little, kneeling if
-        // crouched. The brace eases off as the blockstun runs out.
+        // The guard: both forearms pulled in tight over the head, the head tucked down
+        // behind them, and standing, the front knee brought up to cover the body, as a
+        // fighter checks a kick. Taking a blow on it, the body leans back off the blow and
+        // the standing knee gives a little; kneeling if crouched. The brace eases off as
+        // the blockstun runs out.
         const r = clamp01(f.blockStun / 0.15);
-        T.larmU = -1.35 + 0.8 * armD.l; T.larmL = 1.75 - 0.5 * armD.l; T.rarmU = -1.5 + 0.8 * armD.r; T.rarmL = 1.65 - 0.5 * armD.r;   // a damaged arm cannot hold its guard up
-        T.pitch = -0.15 * r; T.head = 0.35; T.bend = 8 * r;
+        // Lift is negative down: the upper arm a little below level with the elbow out in
+        // front, the forearm folded straight up, so the fists sit in front of the face
+        // (measured: 15 Å forward and 12 up from the shoulder on the barrel, the head
+        // centre 17 up). A damaged arm cannot hold its guard up: it hangs lower.
+        T.larmU = -0.3 - 0.8 * armD.l; T.larmL = 1.85 - 0.6 * armD.l; T.rarmU = -0.3 - 0.8 * armD.r; T.rarmL = 1.85 - 0.6 * armD.r;
+        T.pitch = -0.15 * r; T.head = 0.5; T.bend = 8 * r;
         if (f.crouch) T.low = 1;
+        else { const [bt, bs] = restIK('l'); T.legs = { l: [bt + 0.85 * (1 - 0.5 * legD.l), bs - 0.7, 0.25] }; }   // the front knee up (less on a bad leg)
       } else if (pose === 'rest') {
         // Round won: guard down, arms hanging loose with a little bend at the elbow.
         T.larmU = T.rarmU = -1.4 + breath; T.larmL = T.rarmL = -1.2; T.head = 0.25 + breath;
@@ -289,7 +296,7 @@
       }
       // Each arm hangs by its own damage: a battered arm drops out of the guard.
       if (pose === 'idle' || pose === 'rest' || pose === 'walk' || pose === 'hurt') {
-        T.larmU += 0.9 * armD.l; T.larmL -= 0.4 * armD.l; T.rarmU += 0.9 * armD.r; T.rarmL -= 0.4 * armD.r;
+        T.larmU -= 0.9 * armD.l; T.larmL -= 0.4 * armD.l; T.rarmU -= 0.9 * armD.r; T.rarmL -= 0.4 * armD.r;   // lift is negative down
       }
       if (sag > 0 && MOVES[pose] && !MOVES[pose].air && f.y === 0) T.pitch += slump;
       if (pose === 'idle' || pose === 'rest') T.pitch += breath * 0.8;   // the chest heaves
@@ -381,8 +388,12 @@
       // sole always meets the floor and the hips rise and fall through the stride), sunk by
       // the slump; standing, at the stance's height for its depth, less any knee bend.
       const walkHip = FLOOR - Math.min(gl.sole, gr.sole);
+      // The body has weight: the hips dip as each heel lands and the weight comes onto
+      // it, and ride up again over the standing leg, twice a stride. A dip only, never a
+      // rise, so the standing leg is never asked to reach further than it is long.
+      const bob = walking ? 3 * (1 + Math.cos(4 * Math.PI * (M.phase - U_STRIKE))) / 2 : 0;
       const hipTarget = air ? ANKLE_Y + hipHeight(0)
-        : walking ? walkHip - (hipHeight(0) - hipHeight(low)) - hipDrop
+        : walking ? walkHip - (hipHeight(0) - hipHeight(low)) - hipDrop - bob
         : ANKLE_Y + hipHeight(low) - bend - hipDrop;
       const hy = (air ? f.y : 0) + spring(M, 'hipY', hipTarget, air ? 20 : 60, dt);
       const skid = !air && Math.abs(f.vx) > SKID;

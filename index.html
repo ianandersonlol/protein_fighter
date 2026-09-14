@@ -54,6 +54,11 @@
   .bar i { display: block; height: 100%; width: 100%; background: #0d57d3; transition: width 0.12s, background-color 0.3s; }
   .p2 { text-align: right; }
   .p2 .bar i { margin-left: auto; }
+  /* The special meter: fills as the heat shock / helix spin comes back, lit when ready */
+  .meter { height: calc(5 * var(--u)); border: 1px solid var(--ink); margin-top: 4px; transform: skewX(-14deg); background: var(--faint); opacity: 0.8; }
+  .meter i { display: block; height: 100%; width: 0; background: #fed936; transition: width 0.1s; }
+  .meter.ready i { background: #fd7d4d; box-shadow: 0 0 6px #fd7d4d; }
+  .p2 .meter i { margin-left: auto; }
   /* PAE maps under the health bars (drawn by game.js). */
   .pae { margin-top: 10px; display: grid; gap: 3px; justify-items: start; }
   .p2 .pae { justify-items: end; }
@@ -194,9 +199,11 @@
 
   <div class="hud">
     <div class="player"><b>P1</b><small><span id="fold0">pLDDT 100</span> · <span id="wins0">○ ○</span></small><div class="bar"><i id="hp0"></i></div>
+      <div class="meter" id="meter0" title="special: punch + kick together"><i id="sp0"></i></div>
       <div class="pae"><canvas id="pae0" width="91" height="91" aria-label="P1 predicted aligned error map"></canvas></div></div>
     <div class="timer"><span id="timer">99</span><small id="round">ROUND 01</small></div>
     <div class="player p2"><b id="name1">P2</b><small><span id="wins1">○ ○</span> · <span id="fold1">pLDDT 100</span></small><div class="bar"><i id="hp1"></i></div>
+      <div class="meter" id="meter1" title="special: punch + kick together"><i id="sp1"></i></div>
       <div class="pae"><canvas id="pae1" width="91" height="91" aria-label="P2 predicted aligned error map"></canvas></div></div>
   </div>
 
@@ -238,6 +245,7 @@
       <div class="hits">
         <button class="cap" data-key="f" tabindex="-1"><b>F</b><small>punch</small></button>
         <button class="cap" data-key="g" tabindex="-1"><b>G</b><small>kick</small></button>
+        <button class="cap" data-key="h" tabindex="-1"><b>H</b><small>block</small></button>
       </div>
     </div>
     <p><kbd>Esc</kbd> pause ·
@@ -251,6 +259,7 @@
       <div class="hits">
         <button class="cap" data-key="." tabindex="-1"><b>.</b><small>punch</small></button>
         <button class="cap" data-key="/" tabindex="-1"><b>/</b><small>kick</small></button>
+        <button class="cap" data-key="," tabindex="-1"><b>,</b><small>block</small></button>
       </div>
       <div class="dirs">
         <button class="cap" data-key="arrowup" tabindex="-1" style="grid-area: u"><b>↑</b><small>jump</small></button>
