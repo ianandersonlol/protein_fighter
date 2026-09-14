@@ -126,11 +126,11 @@ touchscreen the on-screen keys are the controls.
 The walk in `game.js` is learned from `../dance/humanoid_v8_walk.pdb` (CMU mocap 07_01
 retargeted onto this rig): each thigh and shin's pitch over a stride, reduced to three
 harmonics and driven by distance walked so the feet don't skate.
-- `vendor/py2Dmol.embed.min.js` — py2Dmol embed bundle, built from
-  `../py2Dmol/py2Dmol/resources/bundles/` ahead of its commit `8d5b700`: it carries the
-  change that lets `replaceFrame` animate without rebuilding the cartoon mesh (the camera
-  and extent are held across same-size frames), and a fix for ribbon loops flickering
-  light and dark as they move (each quad is split along its shorter diagonal); neither is
-  committed there yet
+- `vendor/py2Dmol.embed.min.js` — py2Dmol's embed bundle, byte-identical to the build in
+  `../py2Dmol/py2Dmol/resources/bundles/` at its commit `d856487`. It carries the change
+  that lets `replaceFrame` animate without rebuilding the cartoon mesh (the camera and
+  extent are held across same-size frames, and the mesh is updated in place: the
+  "station" draw the game switches on), and the fix for ribbon loops flickering as they
+  move (each quad split along its shorter diagonal)
 
 To update py2Dmol, copy a newer `py2Dmol.embed.min.js` over the vendored one.
