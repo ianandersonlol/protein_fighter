@@ -520,6 +520,7 @@
 
   // button: the one way on (resume, next round), or none to offer a choice of mode.
   function overlay(title, msg, button) {
+    $('qr').hidden = true; $('joinbox').hidden = true;   // only the REMOTE code shows these
     $('title').textContent = title; $('title').hidden = !title;
     $('msg').textContent = msg; $('msg').hidden = !msg;
     $('go').hidden = !button;
@@ -1299,7 +1300,7 @@
     overlay('REMOTE', 'Getting a code…', null);
     $('modes').hidden = true; $('qr').hidden = false; $('qr').innerHTML = '';
     net.link = window.Net.host({
-      onLink: link => { $('msg').textContent = link; $('msg').hidden = false; if (!window.Net.showQR($('qr'), link)) $('qr').hidden = true; $('title').textContent = 'SCAN TO JOIN'; },
+      onLink: link => { $('msg').textContent = 'scan, or send the link'; $('joinlink').value = link; $('joinbox').hidden = false; if (!window.Net.showQR($('qr'), link)) $('qr').hidden = true; $('title').textContent = 'SCAN TO JOIN'; },
       onGuest: () => { $('qr').hidden = true; $('modes').hidden = false; start(3); },
       onInput: hostInput,
       onClose: () => { held[1].clear(); if (phase === 'playing') { phase = 'paused'; duckMusic(0.08); } overlay('CHALLENGER LEFT', '', 'MENU'); $('go').onclick = () => { $('go').onclick = () => start(); window.Net.stop(); net.link = null; phase = 'ready'; mode = 1; overlay('', '', null); }; },
@@ -1307,6 +1308,18 @@
     });
     if (!net.link) { $('modes').hidden = false; $('qr').hidden = true; }
   }
+  // The join link: clicking it selects it, and COPY (or the click) puts it on the clipboard.
+  async function copyLink() {
+    const input = $('joinlink'), btn = $('copylink');
+    input.focus(); input.select(); input.setSelectionRange(0, input.value.length);
+    let ok = false;
+    try { await navigator.clipboard.writeText(input.value); ok = true; } catch { try { ok = document.execCommand('copy'); } catch {} }
+    btn.textContent = ok ? 'COPIED' : 'SELECT ALL';
+    setTimeout(() => { btn.textContent = 'COPY'; }, 1500);
+  }
+  $('joinlink').onclick = copyLink;
+  $('copylink').onclick = copyLink;
+
   function joinRemote(id) {
     $('modes').hidden = true; $('go').hidden = true;
     overlay('CONNECTING', 'to the host…', null); $('modes').hidden = true;

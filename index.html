@@ -87,6 +87,12 @@
   #qr { display: grid; place-items: center; margin-top: 6px; }
   #qr[hidden] { display: none; }
   #qr img { image-rendering: pixelated; border: 8px solid #fff; background: #fff; }
+  /* The join link as text: click it or COPY to put it on the clipboard. */
+  #joinbox { display: flex; gap: 0; margin-top: 10px; width: min(92vw, 560px); }
+  #joinbox[hidden] { display: none; }
+  #joinlink { flex: 1; min-width: 0; font: inherit; font-size: 12px; padding: 8px 10px; color: var(--ink); background: var(--faint);
+              border: 2px solid var(--ink); border-right: 0; cursor: pointer; }
+  #copylink { padding: 8px 14px; font-size: 11px; letter-spacing: 1px; min-width: 84px; }
   /* 1 or 2 players: a two-button switch under START, the chosen one filled in. */
   .players { display: inline-flex; margin-top: 14px; border: 2px solid var(--ink); border-radius: 999px; overflow: hidden; }
   .players button { background: transparent; color: var(--ink); border: 0; padding: 5px 12px; font-size: 11px; letter-spacing: 1px; }
@@ -183,6 +189,7 @@
     <p id="msg" hidden></p>
     <p id="modes"><button id="one" disabled>START</button><br><span class="players" role="group" aria-label="Players"><button data-players="1" tabindex="-1" class="on">1 PLAYER</button><button data-players="2" tabindex="-1">2 PLAYERS</button><button data-players="3" tabindex="-1">REMOTE</button></span></p>
     <div id="qr" hidden></div>
+    <div id="joinbox" hidden><input id="joinlink" readonly spellcheck="false" aria-label="Join link"><button id="copylink" type="button">COPY</button></div>
     <p><button id="go" hidden>FIGHT</button></p>
   </div>
 
