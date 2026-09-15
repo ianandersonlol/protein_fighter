@@ -142,6 +142,8 @@ steps at sixty, at a pixel ratio of 1.5 at most, with three subdivisions per hel
 residue instead of four (`?detail=2` or `4` on the address to try others), and the
 PAE maps refreshed a quarter as often. Everywhere, a frame that has fallen behind
 steps at most three times to catch up, a moment of slow motion rather than a spiral.
+`?fps` on the address shows, under the timer, frames and draws a second and the script
+cost of each, to read off a phone.
 
 ## Files
 

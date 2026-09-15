@@ -511,6 +511,7 @@
   // of the shoulders rather than being looked down onto.
   const SIDE_PLATES = matchMedia('(max-height: 520px)'), UNDER_PLATES = matchMedia('(max-width: 640px) and (orientation: portrait)');   // where the menu's switches go
   const PHONE = matchMedia('(pointer: coarse)').matches;   // a touch screen: drawn at half rate, the cartoon coarser, the PAE rarer
+  const SHOW_FPS = new URLSearchParams(location.search).has('fps');   // ?fps: frames, draws and their cost, under the timer, to measure on a device
   const CAMERA = { pitch: 0.5, yaw: 0, centerY: 70, x: 0, halfW: 240, minHalfW: 105, room: 80, halfH: 100, shake: 0, bx: 0, by: 0 };
   function frameCamera(dt) {
     const [a, b] = fighters, xa = barrelX(a), xb = barrelX(b);
@@ -1681,7 +1682,9 @@
     // a desktop and three times that on a phone), so on a touch screen it is drawn at
     // most thirty times a second while the fight still steps at sixty.
     if (moved && (!PHONE || now - drawnAt >= 28)) {
+      const t0 = SHOW_FPS ? performance.now() : 0;
       draw(); drawnAt = now;
+      if (SHOW_FPS) { fps.drawMs += performance.now() - t0; fps.draws++; }
       // Live PAE maps: every residue against every residue, so the two maps take turns,
       // one a draw (one every other draw on a phone), not through the hit freeze, where
       // nothing moved, and not while the maps are off the screen.
@@ -1691,6 +1694,18 @@
     }
     if (moved && net.link && ++net.seq % 4 === 0) sendState();   // 15 packets a second
     hud(); placePlates(); if (net.link || net.guest) netStatus(now);
+    if (SHOW_FPS) fpsStatus(now, moved);
+  }
+
+  // ?fps: once a second, frames and draws a second and the script cost of a draw and of
+  // a frame, so what a phone actually manages can be read off its screen.
+  const fps = { frames: 0, draws: 0, drawMs: 0, frameMs: 0, at: 0 };
+  function fpsStatus(now, moved) {
+    fps.frames++; fps.frameMs += performance.now() - now;
+    if (now - fps.at < 1000) return;
+    const secs = (now - fps.at) / 1000; fps.at = now;
+    setText('netstat', `${(fps.frames / secs).toFixed(0)} fps · ${(fps.draws / secs).toFixed(0)} draws/s · draw ${(fps.drawMs / Math.max(1, fps.draws)).toFixed(1)} ms · frame ${(fps.frameMs / Math.max(1, fps.frames)).toFixed(1)} ms · ${devicePixelRatio}x`);
+    fps.frames = fps.draws = 0; fps.drawMs = fps.frameMs = 0;
   }
 
   // ---------------------------------------------------------------- remote play
