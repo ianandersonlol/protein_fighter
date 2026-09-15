@@ -134,6 +134,7 @@
       jit: 5,
       settle: 0,                     // 1 → 0 while a new round's body gathers itself up
       action: 'idle', t: 0, hit: false, stun: 0, cooldown: 0,
+      buffered: null,                // an attack pressed while unable to act, kept for a moment
       specialAt: -9,                 // when the last heat shock went out (clock)
       blockStun: 0,                  // braced behind a block, briefly unable to act
       blockHold: 0,                  // the CPU holding back to block, for this long
@@ -886,6 +887,7 @@
       }
     }
 
+    flushBuffered();
     control(p, held[0], dt);
     if (mode === 2 || mode === 3) control(c, held[1], dt);
     else cpu(c, p, dt);
@@ -1016,7 +1018,7 @@
   function grab(i) {
     const a = fighters[i], b = fighters[1 - i];
     a.hit = true;
-    b.action = 'thrown'; b.t = 0; b.heldBy = i; b.heldProg = 0; b.tumble = null; b.stun = 0; b.blockStun = 0; b.squat = 0; b.crouch = false; b.queued = null; b.vx = 0; b.vy = 0;
+    b.action = 'thrown'; b.t = 0; b.heldBy = i; b.heldProg = 0; b.tumble = null; b.stun = 0; b.blockStun = 0; b.squat = 0; b.crouch = false; b.queued = null; b.buffered = null; b.vx = 0; b.vy = 0;
     b.facing = -a.facing; b.combo = 0;
   }
   function holdThrown(b) {
@@ -1125,7 +1127,7 @@
       if (f.hp > 0) {   // the one still standing lets its guard down and rests
         f.stun = Math.max(0, f.stun - dt);
         if (!MOVES[f.action] || f.t >= MOVES[f.action].duration) f.action = 'rest';
-        f.crouch = false; f.squat = 0; f.queued = null;
+        f.crouch = false; f.squat = 0; f.queued = null; f.buffered = null;
       }
       f.coords = body(f, clock);
     }
@@ -1487,16 +1489,32 @@
   // up waits for take-off and comes out in the air, and one pressed a moment before up
   // is cancelled into the jump. So up + forward + kick is a jump kick in whatever
   // order the fingers land. J/K (or F/G) crouching are low attacks.
-  const BUFFER = 0.3, CANCEL = 0.12;
-  function strike(i, kind) {
+  // An attack pressed while the fighter cannot act (reeling from a blow, braced behind a
+  // block, still recovering from its own move, or held in the hit freeze) is kept for a
+  // moment and comes out as soon as it is free, as a fighting game's input buffer has
+  // it, so a press timed a little early is not thrown away. It is read then, with the
+  // directions held then: forward makes it a straight or roundhouse, down a low attack.
+  const BUFFER = 0.3, HOLD = 0.5, CANCEL = 0.12;   // the jump buffer, the attack buffer (a kick's recovery is 0.4), the cancel window
+  const canAct = f => f.stun <= 0 && f.blockStun <= 0 && f.cooldown <= 0 && !MOVES[f.action] && f.action !== 'thrown' && hitstop <= 0;
+  function strike(i, kind, fromBuffer = false) {
     const f = fighters[i], h = held[i];
-    if (f.y === 0 && (h.has('up') || f.squat > 0)) { f.queued = { move: 'air' + kind, until: clock + BUFFER }; return; }
+    if (f.y === 0 && (h.has('up') || f.squat > 0)) { f.queued = { move: 'air' + kind, until: clock + BUFFER }; return true; }
     // The other attack key within a twelfth of a second of the first: the heat shock.
     if (f.y === 0 && MOVES[f.action] && !MOVES[f.action].wave && f.t < 0.09 && (f.action.endsWith(kind === 'punch' ? 'kick' : 'punch') || f.action === (kind === 'punch' ? 'roundhouse' : 'straight'))) return attack(f, SPECIAL[f.form.name]);
+    if (!canAct(f)) { if (!fromBuffer) f.buffered = { kind, until: clock + HOLD }; return false; }
     const o = fighters[1 - i], forward = f.facing > 0 ? 'right' : 'left';
     if (THROWS && kind === 'punch' && f.y === 0 && !h.has('down') && h.has(forward) && o.y === 0 && barrelGap(f, o) < GRAB) return attack(f, 'throw');
     if (f.y === 0 && !h.has('down') && h.has(forward)) return attack(f, kind === 'punch' ? 'straight' : 'roundhouse');
-    attack(f, f.y > 0 ? 'air' + kind : h.has('down') ? 'low' + kind : kind);
+    return attack(f, f.y > 0 ? 'air' + kind : h.has('down') ? 'low' + kind : kind);
+  }
+  // The buffered press, tried each tick until it comes out or goes stale.
+  function flushBuffered() {
+    fighters.forEach((f, i) => {
+      if (!f.buffered) return;
+      if (clock > f.buffered.until) { f.buffered = null; return; }
+      if (net.guest && i === 0) return;
+      if (strike(i, f.buffered.kind, true)) f.buffered = null;
+    });
   }
   function jumpCancel(i) {
     const f = fighters[i], m = MOVES[f.action];

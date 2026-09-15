@@ -86,6 +86,11 @@ Playing the CPU, both sets drive P1, and J / K / L punch, kick and block as well
   runs over is tripped, flung into a tumble to land in a heap. The bundle's is the helix spin:
   it whirls twice round with both paddles out, ligands flying off their tips, and can catch
   you twice; it shoves hard. The thin meter under each health bar fills as it comes back and lights when it is ready
+- A punch or kick pressed while you cannot act (reeling from a blow, braced behind a block,
+  still recovering from your own move, or in the freeze as a blow lands) is kept for half a
+  second and comes out the moment you are free, read with the directions held then, as a
+  fighting game's input buffer has it. So a press timed a little early is not lost, and the
+  answer to a blow is the kick you pressed while taking it
 - Hits in a row while the other is still reeling count up as a combo, each with its
   damage; the CPU on HARD blocks most of what it sees coming, hits back while you are
   recovering and kicks you out of the air, so a strike thrown over and over is a bad
