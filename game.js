@@ -473,11 +473,11 @@
 
   // Ribbons a third wider than the style's own default, so the fighters read at a glance.
   const RIBBON_WIDTH = 1.35;
-  // py2Dmol draws at the device's full pixel ratio unless told otherwise: capped at 1.5,
-  // as the cell canvases are, since a 3x phone would otherwise shade four times the
-  // pixels, multisampled, for sharpness no one sees on a moving cartoon.
-  window.canvasDPR = Math.min(1.5, window.devicePixelRatio || 1);
   function startViewer(a, b) {
+    // py2Dmol draws at the device's full pixel ratio unless told otherwise: on a phone,
+    // capped at 1.5 as the cell canvases are, since a 3x screen would otherwise shade
+    // four times the pixels, multisampled, for sharpness no one sees on a moving cartoon.
+    if (PHONE) window.canvasDPR = Math.min(1.5, window.devicePixelRatio || 1);
     const style = theme === 'dark' ? '3d' : 'richardson';
     const presetWidth = window.py2dmolCartoon?.LOOK_DEFAULTS?.[style]?.width ?? 3;
     viewer = window.py2Dmol.show($('stage'), pdbText(a, b), {
@@ -1680,10 +1680,10 @@
     // most thirty times a second while the fight still steps at sixty.
     if (moved && (!PHONE || now - drawnAt >= 28)) {
       draw(); drawnAt = now;
-      // Live PAE maps: every residue against every residue, so each map is refreshed on
-      // alternate draws (a quarter of them on a phone), not through the hit freeze, where
+      // Live PAE maps: every residue against every residue, so the two maps take turns,
+      // one a draw (one every other draw on a phone), not through the hit freeze, where
       // nothing moved, and not while the maps are off the screen.
-      const every = PHONE ? 4 : 2;
+      const every = PHONE ? 2 : 1;
       if (hitstop <= 0 && drawn % every === 0 && !SIDE_PLATES.matches) { const i = (drawn / every) & 1, f = fighters[i]; updatePAE(f); drawPAE(f, i); }
       drawn++;
     }
