@@ -500,6 +500,7 @@
   // width is what binds, and following the fighters is what keeps them on screen.
   // Tilted down enough to give the proteins depth, and no more, so the heads stand clear
   // of the shoulders rather than being looked down onto.
+  const SIDE_PLATES = matchMedia('(max-height: 520px)'), UNDER_PLATES = matchMedia('(max-width: 640px) and (orientation: portrait)');   // where the menu's switches go
   const CAMERA = { pitch: 0.5, yaw: 0, centerY: 70, x: 0, halfW: 240, minHalfW: 105, room: 80, halfH: 100, shake: 0, bx: 0, by: 0 };
   function frameCamera(dt) {
     const [a, b] = fighters, xa = barrelX(a), xb = barrelX(b);
@@ -598,7 +599,7 @@
 
   function resetRound() {
     const old = fighters;
-    const apart = phase === 'ready' ? 100 : 80;   // warming up behind the menu they stand wider, clear of the settings between them
+    const apart = phase !== 'ready' ? 80 : SIDE_PLATES.matches ? 112 : 100;   // warming up behind the menu they stand wider, clear of the settings between them; wider still on a phone on its side
     fighters = [newFighter(-apart, 1, FORMS[pick[0]]), newFighter(apart, -1, FORMS[pick[1]])];
     CAMERA.x = 0;
     clearFinisher();
@@ -668,7 +669,6 @@
     sfx.swing(move === 'punch' ? 'punch' : 'kick');
   }
   // The switches over the fighters' heads while the menu is up, following the heads.
-  const SIDE_PLATES = matchMedia('(max-height: 520px)'), UNDER_PLATES = matchMedia('(max-width: 640px) and (orientation: portrait)');
   function placePlates() {
     const wrap = document.querySelector('.picks');
     const show = phase === 'ready' && !net.watch && (!$('modes').hidden || net.guest);

@@ -195,20 +195,18 @@
     .player small { white-space: normal; }
     .timer { min-width: 0; }
   }
-  /* A short screen (a phone on its side): the switches go to the bottom, out of the fight. */
+  /* A short screen (a phone on its side): the menu is a tighter column between the
+     fighters, above the pad, which stays on show. */
   @media (max-height: 520px) {
     .pae { display: none; }
     .pill button { padding: 3px 9px; }
-    /* START in the middle, the settings a row along the bottom, under the fighters */
-    #modes { display: contents; }
-    #overlay:has(#modes:not([hidden])) { padding-bottom: 20vh; }
-    .setup { position: absolute; left: 40px; right: 40px; bottom: 8px; margin: 0 auto; width: max-content; max-width: calc(100% - 80px);   /* clear of the theme button */
-             flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 4px 14px; padding: 6px 12px; }
-    .opt { flex-direction: row; gap: 8px; }
+    #one { padding: 6px 16px; }
+    .setup { gap: 5px; padding: 8px 12px; margin-top: 6px; }
     .pad.left { bottom: calc(var(--foot) + 16px); }
     #theme { bottom: 2px; width: 22px; height: 22px; font-size: 12px; }
-    body:has(#modes:not([hidden])) .pad { visibility: hidden; }   /* the panel needs the whole short screen; the pad is under it anyway */
   }
+  /* On a touch screen the game is one player or remote: two on one phone is no game. */
+  @media (pointer: coarse) { [data-players="2"] { display: none; } }
 </style>
 </head>
 <body>
