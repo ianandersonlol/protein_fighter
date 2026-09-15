@@ -485,7 +485,9 @@
       select: false, box: false, biounit: false,
       // ortho under 0.5: a touch more perspective. detail: subdivisions per helix residue,
       // 4 py2Dmol's default; the mesh update costs in proportion, so a phone gets less.
-      rendering: { width: presetWidth * RIBBON_WIDTH, ortho: 0.4, detail: PHONE ? +(new URLSearchParams(location.search).get('detail') || 3) : 4 },
+      // gpuDirect: py2Dmol's GL canvas sits in the page under its own, rather than
+      // being copied into it every frame (three passes over the screen on a phone).
+      rendering: { width: presetWidth * RIBBON_WIDTH, ortho: 0.4, detail: PHONE ? +(new URLSearchParams(location.search).get('detail') || 3) : 4, gpuDirect: true },
     });
     applyColour();
     // No ground of its own: the page's floor sits behind the proteins, not over them.
