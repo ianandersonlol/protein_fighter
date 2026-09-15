@@ -473,13 +473,19 @@
 
   // Ribbons a third wider than the style's own default, so the fighters read at a glance.
   const RIBBON_WIDTH = 1.35;
+  // py2Dmol draws at the device's full pixel ratio unless told otherwise: capped at 1.5,
+  // as the cell canvases are, since a 3x phone would otherwise shade four times the
+  // pixels, multisampled, for sharpness no one sees on a moving cartoon.
+  window.canvasDPR = Math.min(1.5, window.devicePixelRatio || 1);
   function startViewer(a, b) {
     const style = theme === 'dark' ? '3d' : 'richardson';
     const presetWidth = window.py2dmolCartoon?.LOOK_DEFAULTS?.[style]?.width ?? 3;
     viewer = window.py2Dmol.show($('stage'), pdbText(a, b), {
       name: 'arena', style, orient: false, controls: false, play: false,
       select: false, box: false, biounit: false,
-      rendering: { width: presetWidth * RIBBON_WIDTH, ortho: 0.4 },   // ortho under 0.5: a touch more perspective
+      // ortho under 0.5: a touch more perspective. detail: subdivisions per helix residue,
+      // 4 py2Dmol's default; the mesh update costs in proportion, so a phone gets less.
+      rendering: { width: presetWidth * RIBBON_WIDTH, ortho: 0.4, detail: PHONE ? +(new URLSearchParams(location.search).get('detail') || 3) : 4 },
     });
     applyColour();
     // No ground of its own: the page's floor sits behind the proteins, not over them.
@@ -502,6 +508,7 @@
   // Tilted down enough to give the proteins depth, and no more, so the heads stand clear
   // of the shoulders rather than being looked down onto.
   const SIDE_PLATES = matchMedia('(max-height: 520px)'), UNDER_PLATES = matchMedia('(max-width: 640px) and (orientation: portrait)');   // where the menu's switches go
+  const PHONE = matchMedia('(pointer: coarse)').matches;   // a touch screen: drawn at half rate, the cartoon coarser, the PAE rarer
   const CAMERA = { pitch: 0.5, yaw: 0, centerY: 70, x: 0, halfW: 240, minHalfW: 105, room: 80, halfH: 100, shake: 0, bx: 0, by: 0 };
   function frameCamera(dt) {
     const [a, b] = fighters, xa = barrelX(a), xb = barrelX(b);
@@ -1633,7 +1640,7 @@
   });
 
   // ----------------------------------------------------------------------- loop
-  let last = performance.now(), acc = 0, drawn = 0;   // frames drawn
+  let last = performance.now(), acc = 0, drawn = 0, drawnAt = 0;   // frames drawn, and when the last was
   const DT = 1 / 60;
   let tripped = 0;   // exceptions a step has thrown, reported once
   function frame(now) {
@@ -1654,8 +1661,11 @@
       // Fixed 60 Hz steps whatever the display rate, and a redraw only when something
       // stepped: py2Dmol rebuilds the whole cartoon on every draw, so a 120 Hz screen
       // would otherwise pay for it twice per step.
+      // At most three steps a frame (full speed down to 20 fps): a phone that has fallen
+      // further behind plays a moment of slow motion rather than posing both bodies six
+      // times to catch up, and falling further behind for it.
       acc += dt;
-      while (acc >= DT && phase !== 'paused') {
+      for (let n = 0; n < 3 && acc >= DT && phase !== 'paused'; n++) {
         clock += DT;
         frameCamera(DT);
         if (phase === 'playing') step(DT);
@@ -1663,15 +1673,21 @@
         else warmUp(DT);   // behind the menu, the fighters warm up
         acc -= DT; moved = true;
       }
+      if (acc >= DT) acc = 0;
     }
-    if (moved) {
-      draw();
-      // Live PAE maps: every residue against every residue, so each map is refreshed
-      // on alternate frames (30 Hz), and not through the hit freeze, where nothing moved.
-      if (hitstop <= 0) { const f = fighters[drawn & 1]; updatePAE(f); drawPAE(f, drawn & 1); }
+    // The cartoon is the cost of a frame (py2Dmol's mesh update, some 12 ms of script on
+    // a desktop and three times that on a phone), so on a touch screen it is drawn at
+    // most thirty times a second while the fight still steps at sixty.
+    if (moved && (!PHONE || now - drawnAt >= 28)) {
+      draw(); drawnAt = now;
+      // Live PAE maps: every residue against every residue, so each map is refreshed on
+      // alternate draws (a quarter of them on a phone), not through the hit freeze, where
+      // nothing moved, and not while the maps are off the screen.
+      const every = PHONE ? 4 : 2;
+      if (hitstop <= 0 && drawn % every === 0 && !SIDE_PLATES.matches) { const i = (drawn / every) & 1, f = fighters[i]; updatePAE(f); drawPAE(f, i); }
       drawn++;
-      if (net.link && ++net.seq % 4 === 0) sendState();   // 15 packets a second
     }
+    if (moved && net.link && ++net.seq % 4 === 0) sendState();   // 15 packets a second
     hud(); placePlates(); if (net.link || net.guest) netStatus(now);
   }
 

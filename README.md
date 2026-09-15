@@ -136,7 +136,12 @@ red at the C-terminus, which shows how each protein is threaded, or by secondary
 structure. Both choices are remembered. Clicking a PAE map lights the two stretches of
 residues that pixel scores on the body. The camera follows the fight, closing in when the fighters are close and
 pulling back as they part, so the game fits a phone as well as a monitor; on a
-touchscreen the on-screen keys are the controls.
+touchscreen the on-screen keys are the controls. A phone is drawn lighter to keep
+the fight at speed: the cartoon at most thirty times a second while the fight itself
+steps at sixty, at a pixel ratio of 1.5 at most, with three subdivisions per helix
+residue instead of four (`?detail=2` or `4` on the address to try others), and the
+PAE maps refreshed a quarter as often. Everywhere, a frame that has fallen behind
+steps at most three times to catch up, a moment of slow motion rather than a spiral.
 
 ## Files
 
