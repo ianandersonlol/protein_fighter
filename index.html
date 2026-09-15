@@ -207,8 +207,9 @@
     .foot { bottom: calc(var(--foot) + 4px); }
     #theme { bottom: 2px; width: 22px; height: 22px; font-size: 12px; }
   }
-  /* On a touch screen the game is one player or remote: two on one phone is no game. */
-  @media (pointer: coarse) { [data-players="2"] { display: none; } }
+  /* On a touch screen, or any phone-sized one, the game is one player or remote: two on
+     one phone is no game. */
+  @media (pointer: coarse), (max-width: 640px), (max-height: 520px) { [data-players="2"] { display: none; } }
 </style>
 </head>
 <body>
