@@ -108,23 +108,36 @@
   #joinlink { flex: 1; min-width: 0; font: inherit; font-size: 12px; padding: 8px 10px; color: var(--ink); background: var(--faint);
               border: 2px solid var(--ink); border-right: 0; cursor: pointer; }
   #copylink { padding: 8px 14px; font-size: 11px; letter-spacing: 1px; min-width: 84px; }
-  /* 1 or 2 players: a two-button switch under START, the chosen one filled in. */
-  .players { display: inline-flex; margin-top: 14px; border: 2px solid var(--ink); border-radius: 999px; overflow: hidden; }
-  .players button { background: transparent; color: var(--ink); border: 0; padding: 5px 12px; font-size: 11px; letter-spacing: 1px; }
-  .players button.on { background: var(--ink); color: var(--bg); }
-  /* The CPU's level, shown for a one-player game. */
-  .levels { display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; }
-  .levels[hidden] { display: none; }
-  .levels small { font-size: 10px; letter-spacing: 1px; opacity: 0.7; }
-  /* The same pill as the mode switch, a size down: labelled, the chosen one filled in. */
+  /* The menu sits over the fight without a veil, so the fighters show as they warm up. */
+  #overlay:has(#modes:not([hidden])) { background: transparent; }
+  #modes[hidden] { display: none; }
+  /* The settings under START: a narrow column, to fit between the fighters, each setting
+     its name over a pill of choices, the chosen one filled in. */
+  .setup { display: flex; flex-direction: column; align-items: center; gap: 9px; margin: 12px auto 0; padding: 12px 16px;
+           background: var(--panel); border: 2px solid var(--ink); border-radius: 12px; }
+  .opt { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .opt[hidden] { display: none; }
+  .opt small { font-size: 10px; letter-spacing: 1px; opacity: 0.7; }
   .pill { display: inline-flex; border: 2px solid var(--ink); border-radius: 999px; overflow: hidden; }
-  .pill button { background: transparent; color: var(--ink); border: 0; padding: 4px 11px; font-size: 10px; letter-spacing: 1px; }
+  .pill button { background: transparent; color: var(--ink); border: 0; padding: 5px 12px; font-size: 11px; letter-spacing: 1px; white-space: nowrap; }
   .pill button.on { background: var(--ink); color: var(--bg); }
   .pill button:not(.on):hover { background: var(--faint); }
-  /* Which protein each player fights as. */
-  .picks { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; margin-top: 10px; }
-  .pick { display: inline-flex; align-items: center; gap: 8px; }
-  .pick small { font-size: 10px; letter-spacing: 1px; opacity: 0.7; }
+  .pill button:focus:not(:focus-visible) { outline: none; }
+  /* The switches over the fighters' heads. */
+  .picks[hidden] { display: none; }
+  .pick { position: absolute; transform: translate(-50%, -100%); display: grid; justify-items: center; gap: 3px; padding-bottom: 8px;
+          white-space: nowrap; text-shadow: var(--glow); }
+  /* Where the switches go: over the heads, or on a phone on its side beside the shoulders,
+     the health bars being in the way, or on a phone upright under the feet, the menu
+     taking the room over the heads. game.js sets data-at to match. */
+  .picks[data-at="side"] .pick[data-player="0"] { transform: translate(-100%, -50%); justify-items: end; padding: 0 10px 0 0; }
+  .picks[data-at="side"] .pick[data-player="1"] { transform: translate(0, -50%); justify-items: start; padding: 0 0 0 10px; }
+  .picks[data-at="under"] .pick { transform: translate(-50%, 0); padding: 6px 0 0; }
+  .pick[hidden] { display: none; }
+  .pick .pill { background: var(--panel); text-shadow: none; }
+  #theme { position: absolute; z-index: 6; left: var(--side); bottom: var(--foot); width: 26px; height: 26px; padding: 0; border-radius: 50%;
+           border: 2px solid var(--cap-edge); background: var(--panel); color: var(--ink); font-size: 14px; line-height: 1; display: grid; place-content: center; }
+  #theme:focus:not(:focus-visible) { outline: none; }
   button { font: inherit; cursor: pointer; border: 2px solid var(--ink); background: var(--ink); color: var(--bg); padding: 10px 22px; letter-spacing: 1px; }
   button:disabled { opacity: 0.5; cursor: wait; }
   kbd { border: 1px solid var(--ink); padding: 0 4px; }
@@ -135,6 +148,7 @@
   .pad .who { font-size: 12px; font-style: italic; }
   .pad .row { display: flex; gap: 10px; align-items: end; }
   .pad p { margin: 0; opacity: 0.6; }
+  .pad.left p { margin-left: 34px; }   /* clear of the theme button in the corner */
   .left { left: var(--side); justify-items: start; }
   .right { right: var(--side); justify-items: end; text-align: right; }
   .dirs { display: grid; grid-template-areas: ". u ." "l d r"; gap: 4px; }
@@ -147,38 +161,32 @@
   .cap.down { background: var(--ink); color: var(--bg); border-color: var(--ink); border-bottom-width: 2px; transform: translateY(2px); }
   .link { background: none; color: inherit; border: 0; padding: 0; font-size: 10px; letter-spacing: 0.5px; text-decoration: underline; }
   .link:focus:not(:focus-visible) { outline: none; }
-  /* Two-button switches under the timer, theme and colouring; the current choice is filled in. */
-  .switches { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 14px; margin-top: 10px; }
-  .look { display: inline-flex; align-items: center; gap: 8px; }
-  .look small { font-size: 10px; letter-spacing: 1px; opacity: 0.7; }
-  .theme-switch { display: flex; border: 2px solid var(--ink); border-radius: 999px; overflow: hidden; }
-  .theme-switch button { background: transparent; color: var(--ink); border: 0; padding: 5px 12px; font-size: 11px;
-                         letter-spacing: 1px; white-space: nowrap; }
-  .theme-switch button.on { background: var(--ink); color: var(--bg); }
-  .theme-switch button:not(.on):hover { background: var(--faint); }
-  .theme-switch button:focus:not(:focus-visible) { outline: none; }
   .netstat { display: block; text-align: center; font-size: 10px; letter-spacing: 0.5px; opacity: 0.6; white-space: nowrap; }
   .netstat:empty { display: none; }
-  /* The footnote: what the colours and the corner maps mean, and the credit, as short
-     items centred at the bottom between the two pads, only where there is room. */
+  /* The footnote: the credit, centred at the bottom between the two pads, where there is room. */
   .footnote { position: absolute; left: max(18%, 350px); right: max(18%, 350px); bottom: calc(var(--foot) - 2px); z-index: 5; text-align: center;
               pointer-events: none; font-size: 11px; line-height: 1.6; opacity: 0.55; }
-  .footnote .legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 0 22px; }
-  .footnote .legend span { white-space: nowrap; }
-  .footnote i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; vertical-align: -1px; margin: 0 2px 0 1px; }
   .footnote .credit { letter-spacing: 0.5px; margin-top: 2px; }
   @media (pointer: coarse) {
     .cap { width: 56px; height: 52px; }
     .cap b { font-size: 17px; }
     .pad p { display: none; }
+    .pad { bottom: calc(var(--foot) + 34px); }   /* clear of the theme button */
     /* One player on a touch screen: the pad spans the bottom, directions under the left
        thumb and strikes under the right, the switches between them. */
     body:has(#p2pad[hidden]) .pad.left { right: var(--side); justify-items: stretch; }
     body:has(#p2pad[hidden]) .pad.left .row { flex-direction: row; justify-content: space-between; align-items: end; width: 100%; }
     body:has(#p2pad[hidden]) .pad.left .who { justify-self: start; }
   }
-  @media (max-width: 1100px) { .footnote .legend { display: none; } }
   @media (max-width: 760px), (max-height: 520px) { .footnote { display: none; } }
+  /* A phone upright: the fighters fill the width, so the menu takes the room over their
+     heads, under the health bars, and their names go under their feet. */
+  @media (max-width: 640px) and (orientation: portrait) {
+    #overlay:has(#modes:not([hidden])) { align-content: start; padding-top: calc(max(env(safe-area-inset-top), 12px) + 138px); }
+    #one { padding: 8px 18px; }
+    .setup { gap: 6px; padding: 10px 14px; margin-top: 8px; }
+    .pill button { padding: 3px 9px; }
+  }
   @media (max-width: 640px) {
     .arena { --side: max(env(safe-area-inset-left), env(safe-area-inset-right), 8px); }
     .pad p { display: none; }
@@ -190,8 +198,15 @@
   /* A short screen (a phone on its side): the switches go to the bottom, out of the fight. */
   @media (max-height: 520px) {
     .pae { display: none; }
-    .theme-switch button { padding: 3px 9px; }
-    .pad.left { bottom: calc(var(--foot) + 8px); }
+    .pill button { padding: 3px 9px; }
+    /* START in the middle, the settings a row along the bottom, under the fighters */
+    #modes { display: contents; }
+    #overlay:has(#modes:not([hidden])) { padding-bottom: 20vh; }
+    .setup { position: absolute; left: 40px; right: 40px; bottom: 8px; margin: 0 auto; width: max-content; max-width: calc(100% - 80px);   /* clear of the theme button */
+             flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 4px 14px; padding: 6px 12px; }
+    .opt { flex-direction: row; gap: 8px; }
+    .pad.left { bottom: calc(var(--foot) + 16px); }
+    #theme { bottom: 2px; width: 22px; height: 22px; font-size: 12px; }
     body:has(#modes:not([hidden])) .pad { visibility: hidden; }   /* the panel needs the whole short screen; the pad is under it anyway */
   }
 </style>
@@ -220,18 +235,27 @@
   <div id="overlay" class="ended">
     <h1 id="title" hidden></h1>
     <p id="msg" hidden></p>
-    <p id="modes"><button id="one" disabled>START</button><br><span class="players" role="group" aria-label="Players"><button data-players="1" tabindex="-1" class="on">1 PLAYER</button><button data-players="2" tabindex="-1">2 PLAYERS</button><button data-players="3" tabindex="-1">REMOTE</button></span>
-      <span class="levels" role="group" aria-label="CPU difficulty"><small>CPU</small><span class="pill"><button data-level="easy" tabindex="-1">EASY</button><button data-level="normal" tabindex="-1" class="on">NORMAL</button><button data-level="hard" tabindex="-1">HARD</button></span></span>
-      <span class="picks"><span class="pick" data-player="0" role="group" aria-label="P1 protein"><small>P1</small><span class="pill"><button data-pick="0:barrel" tabindex="-1" class="on">BARREL</button><button data-pick="0:helix" tabindex="-1">BUNDLE</button></span></span><span class="pick" data-player="1" role="group" aria-label="P2 protein"><small>P2</small><span class="pill"><button data-pick="1:barrel" tabindex="-1">BARREL</button><button data-pick="1:helix" tabindex="-1" class="on">BUNDLE</button></span></span></span></p>
-    <!-- Theme and colouring: set here, before the fight, so nothing sits over it -->
-    <p class="switches">
-      <span class="look" role="group" aria-label="Colour theme"><small>THEME</small><span class="theme-switch"><button data-theme-choice="dark" tabindex="-1" aria-pressed="true" class="on">☾ DARK</button><button data-theme-choice="light" tabindex="-1" aria-pressed="false">☀ LIGHT</button></span></span>
-      <span class="look" role="group" aria-label="Protein colouring"><small>COLOUR</small><span class="theme-switch"><button data-colour-choice="plddt" tabindex="-1" aria-pressed="true" class="on">pLDDT</button><button data-colour-choice="rainbow" tabindex="-1" aria-pressed="false">RAINBOW</button><button data-colour-choice="ss" tabindex="-1" aria-pressed="false">SSE</button></span></span>
-    </p>
+    <div id="modes"><button id="one" disabled>START</button>
+      <!-- The settings, a narrow column between the fighters: a name over each choice. -->
+      <div class="setup">
+        <span class="opt players" role="group" aria-label="Players"><small>PLAYERS</small><span class="pill"><button data-players="1" tabindex="-1" class="on">1 PLAYER</button><button data-players="2" tabindex="-1">2 PLAYERS</button><button data-players="3" tabindex="-1">REMOTE</button></span></span>
+        <span class="opt levels" role="group" aria-label="CPU difficulty"><small>CPU</small><span class="pill"><button data-level="easy" tabindex="-1">EASY</button><button data-level="normal" tabindex="-1" class="on">NORMAL</button><button data-level="hard" tabindex="-1">HARD</button></span></span>
+        <span class="opt look" role="group" aria-label="Protein colouring"><small>COLOUR</small><span class="pill"><button data-colour-choice="plddt" tabindex="-1" aria-pressed="true" class="on">pLDDT</button><button data-colour-choice="rainbow" tabindex="-1" aria-pressed="false">RAINBOW</button><button data-colour-choice="ss" tabindex="-1" aria-pressed="false">SSE</button></span></span>
+      </div>
+    </div>
+    <!-- The character select: over each fighter's head, the switch between the two
+         proteins; the fighter below swaps as you choose. game.js places them. -->
+    <div class="picks">
+      <div class="pick" data-player="0" role="group" aria-label="P1 protein"><span class="pill"><button data-pick="0:barrel" tabindex="-1" class="on">BARREL</button><button data-pick="0:helix" tabindex="-1">BUNDLE</button></span></div>
+      <div class="pick" data-player="1" role="group" aria-label="P2 protein"><span class="pill"><button data-pick="1:barrel" tabindex="-1">BARREL</button><button data-pick="1:helix" tabindex="-1" class="on">BUNDLE</button></span></div>
+    </div>
     <div id="qr" hidden></div>
     <div id="joinbox" hidden><input id="joinlink" readonly spellcheck="false" aria-label="Join link"><button id="copylink" type="button">COPY</button></div>
     <p><button id="go" hidden>FIGHT</button></p>
   </div>
+
+  <!-- Dark or light, in the corner: the moon or sun shows the theme it is on. -->
+  <button id="theme" tabindex="-1" aria-label="Switch to the light theme" title="light theme">☾</button>
 
   <div class="pad left">
     <b class="who">P1</b>
@@ -271,12 +295,6 @@
   </div>
 
   <div class="footnote">
-    <div class="legend">
-      <span><b>pLDDT</b> <i style="background:#0d57d3"></i>folded <i style="background:#fd7d4d"></i>unfolded</span>
-      <span><b>rainbow</b> <i style="background:#2c4fd8"></i>N-terminus to <i style="background:#d8322c"></i>C-terminus</span>
-      <span><b>SSE</b> helix and strand by kind</span>
-      <span><b>PAE</b> maps <i style="background:#1e6e32"></i>0 Å to <i style="background:#e8f0e8; border:1px solid #9994"></i>30 Å, click to see the pair</span>
-    </div>
     <div class="credit">characters inspired by Hannes Stark and Alex Waldherr</div>
   </div>
 </main>

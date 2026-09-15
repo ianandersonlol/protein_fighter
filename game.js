@@ -170,7 +170,7 @@
   function bearing(f) {
     const m = meanUnfold(f);
     return { sag: 0.55 * clamp01((m - 0.18) / 0.75), crawl: clamp01((m - 0.66) / 0.32),
-      tired: Math.min(1, Math.max(0.15, f.fatigue, 1.3 * m)), mean: m, kickRange: kickRange(f),
+      tired: Math.min(1, Math.max(0.15, f.fatigue, 1.3 * m)), mean: m, kickRange: kickRange(f), bounce: f.warm || 0,
       legs: { l: legDamage(f, 'l'), r: legDamage(f, 'r') }, arms: { l: armDamage(f, 'l'), r: armDamage(f, 'r') } };
   }
 
@@ -438,11 +438,9 @@
   })();
   function applyTheme() {
     document.documentElement.dataset.theme = theme;
-    for (const b of document.querySelectorAll('[data-theme-choice]')) {
-      const on = b.dataset.themeChoice === theme;
-      b.classList.toggle('on', on);
-      b.setAttribute('aria-pressed', String(on));
-    }
+    const b = $('theme'), other = theme === 'dark' ? 'light' : 'dark';
+    b.textContent = theme === 'dark' ? '☾' : '☀';
+    b.title = other + ' theme'; b.setAttribute('aria-label', 'Switch to the ' + other + ' theme');
   }
   // Colouring: pLDDT (damage, as AlphaFold would colour confidence) or a rainbow along
   // the chain, which shows how each protein is threaded. pLDDT unless chosen otherwise.
@@ -600,13 +598,14 @@
 
   function resetRound() {
     const old = fighters;
-    fighters = [newFighter(-80, 1, FORMS[pick[0]]), newFighter(80, -1, FORMS[pick[1]])];
+    const apart = phase === 'ready' ? 100 : 80;   // warming up behind the menu they stand wider, clear of the settings between them
+    fighters = [newFighter(-apart, 1, FORMS[pick[0]]), newFighter(apart, -1, FORMS[pick[1]])];
     CAMERA.x = 0;
     clearFinisher();
     netEvent('reset', pick.slice());
     time = 99; koTimer = 0; ai = 1.5; hitstop = 0;
     for (const h of held) h.clear();
-    for (const f of fighters) f.coords = body(f, clock);
+    for (const f of fighters) { f.coords = body(f, clock); f.top = Math.max(...f.coords.map(q => q[1])); }   // the head's top, for the plate over it
     // The PAE reference is each fighter as it stands at the bell: healthy, in its stance.
     for (const f of fighters) { f.paeLocal = localPositions(f.coords); f.pae = new Float32Array(f.form.pb * f.form.pb); }
     // Then each body starts from wherever the last round left it, heap and all, and pulls
@@ -639,6 +638,54 @@
     phase = 'playing'; $('overlay').hidden = true; $('overlay').classList.remove('ended');
     announce(`ROUND ${Math.min(round, 3)} · FIGHT!`);
     sfx.round();
+  }
+
+  // Behind the menu the fighters warm up: bouncing on the balls of the feet, and every
+  // second or two a punch or a kick thrown at the air, a hop, a squat. Nothing lands:
+  // there is no contact check here, and the CPU is not thinking. A guest sees the host's
+  // fighters as the packets put them, so it runs none of this.
+  function warmUp(dt) {
+    for (const f of fighters) {
+      if (net.guest) break;
+      f.warm = 1; f.crouch = false;
+      f.t += dt;
+      physics(f, dt);
+      if (MOVES[f.action] && f.t >= MOVES[f.action].duration) { f.action = 'idle'; f.t = 0; f.cooldown = 0; }
+      if (f.squat > 0 && (f.squat -= dt) <= 0) { f.squat = 0; jump(f, 0); }
+      f.warmNext = (f.warmNext ?? 0.6 + Math.random()) - dt;
+      if (f.warmNext <= 0 && f.action === 'idle' && f.y === 0 && !f.squat) {
+        f.warmNext = 0.9 + Math.random() * 1.6;
+        const r = Math.random();
+        if (r < 0.7) shadow(f, r < 0.4 ? 'punch' : 'kick');
+        else { f.squat = SQUAT; f.jumpDir = 0; f.upReleased = true; }   // a short hop
+      }
+    }
+    for (const f of fighters) f.coords = body(f, clock);
+  }
+  // A blow at nothing: the move and its whoosh, no cooldown, so the next can follow.
+  function shadow(f, move) {
+    Object.assign(f, { action: move, t: 0, hit: false, cooldown: 0 });
+    sfx.swing(move === 'punch' ? 'punch' : 'kick');
+  }
+  // The switches over the fighters' heads while the menu is up, following the heads.
+  const SIDE_PLATES = matchMedia('(max-height: 520px)'), UNDER_PLATES = matchMedia('(max-width: 640px) and (orientation: portrait)');
+  function placePlates() {
+    const wrap = document.querySelector('.picks');
+    const show = phase === 'ready' && !net.watch && (!$('modes').hidden || net.guest);
+    if (wrap.hidden !== !show) wrap.hidden = !show;
+    if (!show) return;
+    const at = SIDE_PLATES.matches ? 'side' : UNDER_PLATES.matches ? 'under' : 'over';
+    if (wrap.dataset.at !== at) wrap.dataset.at = at;
+    const { W, project } = view();
+    for (const el of wrap.children) {
+      if (el.hidden) continue;
+      const f = fighters[+el.dataset.player];
+      let [sx, sy] = at === 'side' ? project(barrelX(f) - f.facing * 26, f.top - 14, 0) : at === 'under' ? project(barrelX(f), -2, 0) : project(barrelX(f), f.top + 4, 0);
+      // Kept on the screen: a fighter can stand near the edge.
+      const w = el.offsetWidth, lo = at === 'side' && f.facing > 0 ? w + 4 : w / 2 + 4, hi = at === 'side' && f.facing < 0 ? W - w - 4 : W - w / 2 - 4;
+      sx = Math.max(lo, Math.min(hi, sx));
+      el.style.left = sx.toFixed(1) + 'px'; el.style.top = sy.toFixed(1) + 'px';
+    }
   }
 
   function endRound() {
@@ -821,6 +868,7 @@
     tick++;
     time = Math.max(0, time - dt);
     for (const f of fighters) {
+      f.warm = 0;
       f.t += MOVES[f.action] ? dt / strikeSlow(f) : dt;   // a battered limb strikes slower
       f.stun = Math.max(0, f.stun - dt); f.cooldown = Math.max(0, f.cooldown - dt);
       f.blockStun = Math.max(0, f.blockStun - dt); f.blockHold = Math.max(0, f.blockHold - dt);
@@ -1521,7 +1569,7 @@
       if (net.guest && +i !== 1) return;
       pick[+i] = form; showPicks();
       if (net.guest) { net.send?.({ t: 'pick', form }); return; }
-      if (phase === 'ready') resetRound();
+      if (phase === 'ready') { resetRound(); fighters[+i].warmNext = 0.2; }   // the new fighter shows what it has
     };
   }
   for (const b of document.querySelectorAll('[data-level]')) {
@@ -1532,6 +1580,7 @@
     b.onclick = () => {
       mode = +b.dataset.players;
       document.querySelector('.levels').hidden = mode !== 1;
+      showPicks();
       for (const o of document.querySelectorAll('[data-players]')) o.classList.toggle('on', o === b);
     };
   }
@@ -1548,16 +1597,13 @@
       applyColour();
     };
   }
-  for (const b of document.querySelectorAll('[data-theme-choice]')) {
-    b.onclick = () => {
-      if (b.dataset.themeChoice === theme) return;
-      theme = b.dataset.themeChoice;
-      try { localStorage.setItem(THEME_KEY, theme); } catch {}
-      applyTheme();
-      // py2Dmol paints each style on its own ground, so rebuild the viewer in the new style.
-      startViewer(fighters[0].coords, fighters[1].coords);
-    };
-  }
+  $('theme').onclick = () => {
+    theme = theme === 'dark' ? 'light' : 'dark';
+    try { localStorage.setItem(THEME_KEY, theme); } catch {}
+    applyTheme();
+    // py2Dmol paints each style on its own ground, so rebuild the viewer in the new style.
+    startViewer(fighters[0].coords, fighters[1].coords);
+  };
 
   // The window resized: py2Dmol resizes its canvas, but the cartoon it holds on the GPU
   // for in-place updates keeps the old projection, so once the resizing settles the
@@ -1596,7 +1642,7 @@
         frameCamera(DT);
         if (phase === 'playing') step(DT);
         else if (phase === 'ko' || phase === 'over') stepKO(DT);   // after the round, the heap keeps settling
-        else for (const f of fighters) f.coords = body(f, clock);   // idle breathing behind the menus
+        else warmUp(DT);   // behind the menu, the fighters warm up
         acc -= DT; moved = true;
       }
     }
@@ -1608,7 +1654,7 @@
       drawn++;
       if (net.link && ++net.seq % 4 === 0) sendState();   // 15 packets a second
     }
-    hud(); if (net.link || net.guest) netStatus(now);
+    hud(); placePlates(); if (net.link || net.guest) netStatus(now);
   }
 
   // ---------------------------------------------------------------- remote play
@@ -1782,8 +1828,9 @@
   try {
     applyTheme();
     resetRound();
+    showPicks();
     startViewer(fighters[0].coords, fighters[1].coords);
-    window.proteinFighter = { get fighters() { return fighters; }, get mode() { return mode; }, get phase() { return phase; }, get viewer() { return viewer; }, camera: CAMERA, forms: FORMS, barrelGap, updatePAE, net };   // for poking at from the console
+    window.proteinFighter = { get fighters() { return fighters; }, get mode() { return mode; }, get phase() { return phase; }, get viewer() { return viewer; }, camera: CAMERA, forms: FORMS, barrelGap, updatePAE, net, view };   // for poking at from the console
     $('one').disabled = false;
     if (net.guest) joinRemote(window.Net.joinId());
     requestAnimationFrame(frame);

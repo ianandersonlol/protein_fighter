@@ -322,7 +322,8 @@
       if (standing && f.squat > 0) T.bend = 17 * 0.55 * (1 - f.squat / SQUAT);
       else if (standing && f.landing > 0) T.bend = 17 * 0.75 * f.landPower * (f.landing / LANDING);
       // On guard, a light bounce on the knees, as a boxer stays on the balls of the feet.
-      else if (pose === 'idle' && !f.crouch && f.y === 0) T.bend = 2.5 * (0.5 + 0.5 * Math.sin(env.clock * 2 * Math.PI * 1.4 + f.seed));
+      // Warming up behind the menu it bounces in earnest, quicker and deeper.
+      else if (pose === 'idle' && !f.crouch && f.y === 0) { const b = env.bounce || 0; T.bend = (2.5 + 7 * b) * (0.5 + 0.5 * Math.sin(env.clock * 2 * Math.PI * (1.4 + 0.8 * b) + f.seed)); }
       // How fast the pose follows: strikes land on time, a knockout goes slack slowly.
       const bracing = f.squat > 0 || f.landing > 0;
       T.omega = MOVES[pose] ? (pose === 'spin' ? 80 : 60) : bracing ? 55 : pose === 'hurt' ? 40 : pose === 'block' ? 50 : pose === 'thrown' ? 45 : pose === 'ko' ? 10

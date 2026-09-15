@@ -46,7 +46,7 @@ the HUD, the overlay, and any hits, callouts and sounds since the last one) that
 the guest in step. The connection is a WebRTC data channel set up through PeerJS's
 public signaling server, direct where it can be and through PeerJS's relays where it
 can't, so both devices need internet even on one Wi-Fi; the page loads PeerJS and a QR
-library from unpkg. A status line under the switches shows the packet rate and the
+library from unpkg. A status line under the timer shows the packet rate and the
 link's state on both sides. A TURN server of your own can be given as
 `?turn=turn:host:port&tu=user&tp=password` before pressing REMOTE; the join link carries
 it to the guest. A guest that drops without a word (a dead browser, a lost network, a
@@ -90,7 +90,10 @@ Playing the CPU, both sets drive P1, and J / K / L punch, kick and block as well
   damage; the CPU on HARD blocks most of what it sees coming, hits back while you are
   recovering and kicks you out of the air, so a strike thrown over and over is a bad
   idea. EASY and NORMAL are gentler
-- Under the title screen each player picks BARREL or BUNDLE, and a guest picks its own
+- The title screen is the character select: the two fighters warm up on the membrane,
+  bouncing on their toes and throwing punches and kicks at the air, with a switch over each
+  head, BARREL or BUNDLE; the fighter below swaps as you choose, and a guest picks its own. The settings (players, CPU level, colouring) sit in a
+  column between them, under START
 - Punch and kick change with what you are doing. Crouching they become low attacks,
   which unfold only the legs. In the air they hit from above. Pressing jump and an
   attack together gives the air attack, whichever lands first
@@ -121,7 +124,8 @@ held at 3.8 Å throughout.
 
 Music and effects are synthesised in the browser with WebAudio; SOUND ON/OFF toggles both.
 
-The THEME and COLOUR switches on the START panel pick a dark or light theme and how the proteins are
+The moon or sun button in the bottom left corner switches between the dark and light
+themes, and the COLOUR switch on the title screen picks how the proteins are
 coloured: by pLDDT (damage), as a rainbow along the chain, blue at the N-terminus to
 red at the C-terminus, which shows how each protein is threaded, or by secondary
 structure. Both choices are remembered. Clicking a PAE map lights the two stretches of
